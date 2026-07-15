@@ -1,6 +1,6 @@
 ---
 title: Development workflow
-sources: ["app/core/config.py", "app/core/logging_config.py", "tests/**", ".env.example", ".claude/rules/**", ".claude/hooks/**", ".claude/settings.json", ".pre-commit-config.yaml", "bitbucket-pipelines.yml", "pyproject.toml", "requirements.txt", "requirements-dev.txt", "scripts/fresh-start.sh", "scripts/fresh-start.ps1", "scripts/claude-headroom.sh", "scripts/claude-headroom.ps1"]
+sources: ["app/core/config.py", "app/core/logging_config.py", "tests/**", ".env.example", ".claude/rules/**", ".claude/hooks/**", ".claude/settings.json", ".pre-commit-config.yaml", "pyproject.toml", "requirements.txt", "requirements-dev.txt", "scripts/fresh-start.sh", "scripts/fresh-start.ps1", "scripts/claude-headroom.sh", "scripts/claude-headroom.ps1"]
 read-when: "changing settings/logging, tests, dependencies, quality-gate config, CI, hooks/automation, coding conventions, or the fresh-start/detach script"
 verified: b9a6e044d582
 ---
@@ -73,9 +73,9 @@ target: cover logic where mistakes hurt, skip trivial pass-throughs.
 
 ## The quality gate
 
-The same six checks run locally (via pre-commit or the `/verify` skill) and in
-Bitbucket CI (`bitbucket-pipelines.yml`), so a clean local run never gets
-rejected by CI:
+The same six checks run locally via pre-commit or the `/verify` skill (the
+Bitbucket CI pipeline that used to mirror them was removed with the move to
+GitHub hosting; re-add a CI workflow running this exact list when CI returns):
 
 ```
 python -m ruff check .
@@ -86,10 +86,9 @@ python -m bandit -c pyproject.toml -r app main.py
 python -m pytest
 ```
 
-Bitbucket CI adds `detect-secrets-hook` (baseline in `.secrets.baseline`) and
-`pip_audit` as a separate parallel "Security scan" step, run on every pull
-request and on pushes to `dev`. Tool versions are pinned in
-`requirements-dev.txt` so CI and local runs use identical versions.
+Pre-commit additionally runs `detect-secrets-hook` (baseline in
+`.secrets.baseline`); `pip_audit` runs on dependency bumps. Tool versions are
+pinned in `requirements-dev.txt` so every environment uses identical versions.
 
 The Vue frontend (`frontend/`) has its own separate check — `npm run build`
 (vue-tsc type-check + Vite build) — which is not part of the Python gate; run
