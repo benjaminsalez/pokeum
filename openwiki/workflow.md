@@ -2,7 +2,7 @@
 title: Development workflow
 sources: ["app/core/config.py", "app/core/logging_config.py", "tests/**", ".env.example", ".claude/rules/**", ".claude/hooks/**", ".claude/settings.json", ".pre-commit-config.yaml", "pyproject.toml", "requirements.txt", "requirements-dev.txt", "scripts/fresh-start.sh", "scripts/fresh-start.ps1", "scripts/claude-headroom.sh", "scripts/claude-headroom.ps1"]
 read-when: "changing settings/logging, tests, dependencies, quality-gate config, CI, hooks/automation, coding conventions, or the fresh-start/detach script"
-verified: b9a6e044d582
+verified: a5093831ce1a
 ---
 
 # Development workflow
