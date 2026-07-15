@@ -8,12 +8,15 @@ validate against the response models. All the real work lives in the pipeline.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse
 
 from app.api.schemas import CardDetailResponse, HealthResponse, IdentifyResponse
-from app.core import constants
+from app.core import config, constants
 from app.recognize.pipeline import Recognizer
+from app.reference import images
 from app.vision.imaging import decode_bytes
 
 logger = logging.getLogger(__name__)
@@ -76,3 +79,29 @@ def get_card(request: Request, card_id: str) -> dict:
     if card is None:
         raise HTTPException(status_code=404, detail=f"unknown card: {card_id}")
     return card.as_dict()
+
+
+@router.get("/cards/{card_id}/image")
+def get_card_image(request: Request, card_id: str) -> FileResponse:
+    """Serve a small cached thumbnail of one card (used by the scan UI).
+
+    The hi-res reference PNG is ~1 MB; the UI needs ~320px. A JPEG thumbnail is
+    derived lazily on first request, cached on disk, and served with immutable
+    cache headers so repeat views never refetch.
+
+    Raises:
+        HTTPException: 404 when the card is unknown or its image is not cached.
+    """
+    card = _recognizer(request).store.get_card(card_id)
+    if card is None or not card.image_path or not Path(card.image_path).is_file():
+        raise HTTPException(status_code=404, detail=f"no image for card: {card_id}")
+    thumb = images.ensure_thumbnail(
+        Path(card.image_path),
+        images.thumbnail_path(config.data_dir(), card_id),
+        constants.CARD_THUMB_WIDTH,
+    )
+    return FileResponse(
+        thumb,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400, immutable"},
+    )

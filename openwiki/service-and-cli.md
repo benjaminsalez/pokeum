@@ -1,11 +1,11 @@
 ---
-title: Service, CLI & webcam
-sources: ["app/cli.py", "app/api/**", "main.py", "app/recognize/factory.py", "app/recognize/webcam.py", "app/recognize/eval.py"]
-read-when: "changing the CLI commands, the FastAPI endpoints, webcam scanning, the recognizer factory/wiring, or the accuracy eval harness"
+title: Service, CLI, frontend & webcam
+sources: ["app/cli.py", "app/api/**", "main.py", "app/recognize/factory.py", "app/recognize/webcam.py", "app/recognize/eval.py", "frontend/**", "scripts/make_synthetic_eval.py"]
+read-when: "changing the CLI commands, the FastAPI endpoints, the Vue scan frontend, webcam scanning, the recognizer factory/wiring, or the eval harness"
 verified: 26c9ccc9aeb1
 ---
 
-# Service, CLI & webcam
+# Service, CLI, frontend & webcam
 
 The three ways to drive the recognizer, plus the wiring that builds it. The
 recognition logic itself is in [recognition-pipeline](recognition-pipeline.md);
@@ -55,9 +55,30 @@ models in [`schemas.py`](../app/api/schemas.py):
 - `POST /identify` (multipart `file`, query `top_k`) → the recognition result;
   `400` when the upload cannot be decoded as an image
 - `GET /cards/{card_id}` → catalogue detail; `404` when unknown
+- `GET /cards/{card_id}/image` → a 320px JPEG thumbnail of the card, derived
+  lazily from the cached reference image into `data/thumbs/` and served with
+  immutable cache headers (the scan UI's confirmation sheet uses this — never
+  serve the full reference image to a UI)
 
-Start it with `python main.py serve` (binds `API_HOST:API_PORT`, defaults
-`127.0.0.1:8000`).
+CORS is wide open on purpose: the service is local and account-less, and the
+frontend may load from another origin (dev server, tunnel). Start it with
+`python main.py serve` (binds `API_HOST:API_PORT`, defaults `127.0.0.1:8000`).
+
+## Scan frontend (`frontend/`)
+
+A Vue 3 + TypeScript + Tailwind app with hand-written shadcn-style components
+(`src/components/ui/` — they take a `class` prop merged via tailwind-merge so
+callers can override styles; bypassing that caused a real white-buttons bug).
+Two views in [`App.vue`](../frontend/src/App.vue): a full-screen camera scan
+view (guide frame, one scan button, then a confirmation sheet showing the
+matched card's thumbnail with Skip/Save) and an export view (quantity steppers,
+TCGplayer-style CSV download, plain-text copy — [`exporters.ts`](../frontend/src/lib/exporters.ts)).
+No confidence values are shown anywhere by design.
+
+Dev: `npm run dev` in `frontend/` (port 5173) proxies `/api/*` to the local
+service, so start the API first; `allowedHosts` covers cloudflared/ngrok
+tunnels, and `VITE_API_BASE` points the client at a cross-origin API when the
+proxy isn't in play. Build check: `npm run build` (vue-tsc + vite).
 
 ## Webcam (`app/recognize/webcam.py`)
 
@@ -72,10 +93,16 @@ preview window, which is why emissions go to stdout rather than an overlay.
 ## Eval harness (`app/recognize/eval.py`)
 
 `evaluate_folder()` recognizes every `{card_id}__*.jpg` labelled image in a
-folder and reports top-1 / top-k accuracy plus the list of misses. It is the
-acceptance instrument for the recognition milestones: it makes a change's effect
-on real photos measurable rather than guessed. Run it with `python main.py eval
-<folder>`.
+folder and reports the full scorecard: top-1 / top-k accuracy, verdict counts
+(confident / uncertain / no_match), mean confidence, mean margin over the
+runner-up, and the list of misses. It is the acceptance instrument for the
+recognition milestones: it makes a change's effect on real photos measurable
+rather than guessed. Run it with `python main.py eval <folder>`.
+
+Labelled test sets live under `data/eval/` (gitignored): `synthetic/` is
+regenerable via `scripts/make_synthetic_eval.py` (PIL-based distortions,
+deliberately independent of the training augmentations), and `real/` holds
+real-world listing photos named `{card_id}__*.jpg`.
 
 ## Changing this area
 

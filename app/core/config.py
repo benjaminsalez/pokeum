@@ -72,7 +72,7 @@ def card_language() -> str:
 
 def embed_model_path() -> str:
     """Filesystem path to the ONNX image encoder; empty/missing enables the fallback."""
-    return get("EMBED_MODEL_PATH", "./data/models/dinov2s.onnx")
+    return get("EMBED_MODEL_PATH", "./data/models/dinov2s-ft-v1.onnx")
 
 
 # --- API service ----------------------------------------------------------

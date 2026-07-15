@@ -73,6 +73,13 @@ def test_identify_rejects_non_image(tmp_path: Path) -> None:
     assert response.status_code == 400
 
 
+def test_card_image_missing_returns_404(tmp_path: Path) -> None:
+    with TestClient(create_app(_recognizer(tmp_path))) as client:
+        # Card exists but has no cached image; unknown card also 404s.
+        assert client.get("/cards/s1-1/image").status_code == 404
+        assert client.get("/cards/nope/image").status_code == 404
+
+
 def test_get_card_found_and_missing(tmp_path: Path) -> None:
     with TestClient(create_app(_recognizer(tmp_path))) as client:
         found = client.get("/cards/s1-1")

@@ -105,6 +105,11 @@ for the next card. The webcam loop that feeds it is
 
 ## Changing this area
 
+- Reference images are low-res webp (~245×337, see
+  [reference-data](reference-data.md)) — this is fine because every signal
+  operates at or below that scale (embeddings 224px, hashes on the DCT's low
+  frequencies, symbols 48px). Don't add a signal that assumes hi-res
+  references without revisiting that decision.
 - Keep pure logic pure: `geometry`, `fusion`, `temporal`, and the OCR parsers
   have no heavy imports and are unit-tested directly — don't pull OpenCV or a
   model into them.

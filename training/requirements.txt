@@ -1,0 +1,20 @@
+# Box-side dependencies for the one-time embedder fine-tune (training/).
+#
+# torch is deliberately NOT pinned here: the training box ships a preinstalled
+# torch (2.12.1+cu130 at recon time) and the venv is created with
+# --system-site-packages to inherit it. Reinstalling torch would re-resolve a
+# multi-GB wheel for nothing.
+#
+# torchvision MUST match the preinstalled torch's minor version. Verify the
+# pair imports on the box before the first run (deploy.sh does this); if the
+# import fails, pin torchvision to the wheel released alongside that torch.
+torchvision==0.27.*
+
+# Same pins as the app's requirements.txt where shared.
+httpx==0.28.1
+Pillow==11.0.0
+numpy==2.2.6
+
+# ONNX export serialization + CPU parity check against the app's runtime.
+onnx==1.19.*
+onnxruntime==1.26.0

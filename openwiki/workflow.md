@@ -91,6 +91,10 @@ Bitbucket CI adds `detect-secrets-hook` (baseline in `.secrets.baseline`) and
 request and on pushes to `dev`. Tool versions are pinned in
 `requirements-dev.txt` so CI and local runs use identical versions.
 
+The Vue frontend (`frontend/`) has its own separate check — `npm run build`
+(vue-tsc type-check + Vite build) — which is not part of the Python gate; run
+it when touching `frontend/`. See [service-and-cli](service-and-cli.md).
+
 - **Pre-commit** (`.pre-commit-config.yaml`): one-time setup per clone is
   `pip install -r requirements-dev.txt && pre-commit install`. All hooks are
   `language: system`, so they run the same pinned tools instead of pre-commit

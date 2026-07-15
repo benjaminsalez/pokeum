@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
 from app.recognize.factory import build_recognizer
@@ -38,5 +39,14 @@ def create_app(recognizer: Recognizer | None = None) -> FastAPI:
         yield
 
     app = FastAPI(title="pokeum card recognizer", version="1.0.0", lifespan=lifespan)
+    # Open CORS: the service is a local, account-less recognizer, and the
+    # frontend may be served from another origin (dev server, tunnel). Nothing
+    # here is credentialed, so a wildcard is safe.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.include_router(router)
     return app

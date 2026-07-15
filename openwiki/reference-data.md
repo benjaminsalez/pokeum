@@ -16,13 +16,20 @@ Everything lives under `DATA_DIR` (default `./data`, gitignored):
 ```
 data/
   reference.db        SQLite catalogue: sets, cards, variant flags, perceptual hashes, meta
-  images/{set}/*.png  cached hi-res card images
-  symbols/{set}.png   cached set-symbol images (for the WOTC symbol signal)
+  images/{set}/*.webp cached card images (low-quality webp — see note below)
+  symbols/{set}.webp  cached set-symbol images (for the WOTC symbol signal)
+  thumbs/*.jpg        lazily derived 320px thumbnails the API serves to the scan UI
   index/emb_full.npy  full-card embedding matrix   } row order in
   index/emb_art.npy   artwork-crop embedding matrix } row_ids.json
   index/row_ids.json
-  models/*.onnx       optional exported encoder (EMBED_MODEL_PATH)
+  models/*.onnx       exported encoder (EMBED_MODEL_PATH; default dinov2s-ft-v1.onnx)
 ```
+
+**Image quality is deliberately `low` + `webp`** (~245×337, ~60 KB/card): every
+consumer works at or below that size (224px embeddings, hashes, 320px thumbs,
+48px symbols), and the full ~22k-card catalogue costs ~1.5 GB instead of ~18 GB.
+Trap to remember: on TCGdex the *extension* drives the encoding — `low.png` is
+still 600×825 lossless (~900 KB); only the webp variants are small.
 
 ## The store (`app/reference/store.py`)
 
@@ -97,10 +104,10 @@ python scripts/export_embedder.py --out data/models/dinov2s.onnx
 python main.py index build --full     # rebuild embeddings with the new encoder
 ```
 
-A deferred, optional step is fine-tuning that encoder for photography robustness
-(synthetic glare/perspective/blur) — it learns *invariance to photography*, not
-card identities, so new sets still need no training. That tooling is not part of
-this repo.
+The optional one-time fine-tune of that encoder for photography robustness
+(synthetic glare/perspective/blur) lives in `training/` and is documented in
+[training](training.md) — it learns *invariance to photography*, not card
+identities, so new sets still need no training.
 
 ## Changing this area
 

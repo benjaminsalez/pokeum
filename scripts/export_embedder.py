@@ -35,10 +35,26 @@ def export(out_path: Path, hub_repo: str, hub_model: str) -> None:
 
     model = torch.hub.load(hub_repo, hub_model)
     model.eval()
+
+    # DINOv2's forward(x, masks=None) makes modern torch exporters emit `masks`
+    # as a second required graph input, breaking the app's single-input
+    # contract. A wrapper pins the traced signature to one tensor.
+    class _SingleInput(torch.nn.Module):
+        """Constrain the export signature to exactly one tensor input."""
+
+        def __init__(self, inner: torch.nn.Module) -> None:
+            super().__init__()
+            self.inner = inner
+
+        def forward(self, image: torch.Tensor) -> torch.Tensor:
+            """Return encoder features for one image batch."""
+            out: torch.Tensor = self.inner(image)
+            return out
+
     dummy = torch.zeros(1, 3, _INPUT_SIZE, _INPUT_SIZE, dtype=torch.float32)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.onnx.export(
-        model,
+        _SingleInput(model),
         dummy,
         str(out_path),
         input_names=["image"],

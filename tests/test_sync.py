@@ -62,7 +62,7 @@ def _handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=_SET_DETAIL)
     if path.startswith("/v2/en/cards/"):
         return httpx.Response(200, json=_CARDS[path.rsplit("/", 1)[1]])
-    if path.endswith(("high.png", "symbol.png")):
+    if path.endswith((".png", ".webp")):
         return httpx.Response(200, content=_png_bytes())
     return httpx.Response(404)
 

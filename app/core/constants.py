@@ -101,14 +101,27 @@ TEMPORAL_RESET_AFTER_EMPTY = 8
 SCAN_TARGET_FPS = 5
 
 # --- Reference sync ---------------------------------------------------------
-SYNC_CONCURRENCY = 4
+# TCGdex is latency-bound (~1.4 s/request) and tolerates well above this
+# comfortably (verified at 32 during training-data fetch); 12 keeps a full
+# catalogue sync under an hour while staying polite.
+SYNC_CONCURRENCY = 12
 SYNC_MAX_RETRIES = 3
 SYNC_BACKOFF_SECONDS = 1.0
 HTTP_TIMEOUT_SECONDS = 30.0
-# TCGdex serves images from a base URL with no extension; append this suffix for
-# the high-resolution PNG.
-TCGDEX_IMAGE_QUALITY = "high"
-TCGDEX_IMAGE_EXTENSION = "png"
+# TCGdex serves images from a base URL with no extension; append quality and
+# extension. "low" + "webp" (~245x337 lossy, ~60 KB) is deliberate: every
+# consumer of a reference image (224px embeddings, perceptual hashes, 320px UI
+# thumbnails, 48px symbol templates) works at or below this size, and the full
+# catalogue then costs ~1.5 GB instead of ~18 GB. Beware: the extension drives
+# the encoding — "low.png" is still 600x825 LOSSLESS (~900 KB per card, filled
+# the dev drive twice); only the webp variants are actually small.
+TCGDEX_IMAGE_QUALITY = "low"
+TCGDEX_IMAGE_EXTENSION = "webp"
+
+# --- API image serving --------------------------------------------------------
+# Width of the derived JPEG thumbnails the API serves to the scan UI; small
+# enough to load instantly, large enough to be sharp at confirmation-sheet size.
+CARD_THUMB_WIDTH = 320
 
 # --- Card era ---------------------------------------------------------------
 # Cards released in or before this year are treated as WOTC-era for variant

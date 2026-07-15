@@ -38,6 +38,9 @@ fix: Run from the repository root (imports are rooted there), not from a subdire
 pattern: `cannot (read image|decode image bytes)`
 fix: OpenCV could not load the input - check the path exists and points to a real image file (identify), or that the uploaded bytes are a valid image (API /identify returns 400 for this).
 
+pattern: `No space left on device`
+fix: The disk filled - usually a sync downloading oversized card images; verify TCGDEX_IMAGE_QUALITY/EXTENSION are low/webp in constants AND that stored image_url values in reference.db actually end in low.webp (URLs are baked in at first sync; re-syncs reuse them).
+
 ## Quality gate
 
 pattern: `would be reformatted`

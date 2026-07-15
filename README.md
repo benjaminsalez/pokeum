@@ -1,62 +1,66 @@
-# vva-python-template
+# pokeum
 
-VVA's starter template for Python 3.13 projects — and the **golden baseline** for our Claude Code setup. It ships two stacks in one repo: a minimal, correctly-wired application skeleton, and an agent-automation layer that makes Claude Code sessions fast, guarded, and self-documenting.
-
-New here? Do this, then read the diagrams below:
+Point a camera at a Pokémon card and pokeum tells you **exactly which printing it is** — name, set, and collector number (e.g. *Pikachu · Paldea Evolved · 025/193*) plus print variants like reverse holo or 1st Edition. It ships as a Python library, a CLI, and a small HTTP API.
 
 ```bash
-./scripts/fresh-start.sh        # once: detach from the template (drops its git history, re-inits on `dev`)
 python -m venv .venv && . .venv/Scripts/activate
-pip install -r requirements-dev.txt
-pre-commit install
-python main.py                  # run
-python -m pytest                # test
-claude                          # start an agent session — everything below kicks in automatically
+pip install -r requirements.txt
+python main.py sync              # download the card catalogue from TCGdex (once)
+python main.py index build      # precompute the matching index (once)
+python main.py identify my_card_photo.jpg
+python main.py scan             # live webcam mode
+python main.py serve            # HTTP API on :8000
 ```
 
-Documentation lives in [`openwiki/quickstart.md`](openwiki/quickstart.md) (humans *and* agents start there) and the always-on agent rules in [`.claude/rules/`](.claude/rules). This README is the onboarding map, not the manual.
+Documentation lives in [`openwiki/quickstart.md`](openwiki/quickstart.md); this README is the map, not the manual.
 
-## The application stack
+## How it works, end to end
 
-Small on purpose: a layered skeleton with the boring parts wired correctly, plus one example feature to copy and then delete.
+The one idea that shapes everything: **pokeum never trains a model to recognize cards.** Instead it *looks cards up*. Every card ever printed has a clean reference image on [TCGdex](https://tcgdex.dev); pokeum downloads those once, computes a compact "fingerprint" of each (perceptual hashes + neural-network embeddings from a **frozen** encoder), and stores them in an index. Recognizing a photo is then just: clean the photo up, fingerprint it the same way, and find the closest match — with the card's printed collector number (read by OCR) settling any tie between reprints that share the same artwork.
 
-![The application stack](assets/application-stack.png)
-
-<details>
-<summary>Diagram source (mermaid) — regenerate with <code>npx -y @mermaid-js/mermaid-cli -i chart.mmd -o assets/application-stack.png -b white -s 2</code></summary>
+Because recognition is a lookup, **a new set costs zero training**: run `sync` + `index build` and its cards are recognizable minutes after release.
 
 ```mermaid
 flowchart TD
-    subgraph app["Application"]
-        MAIN["main.py — entry point: configure() logging, then run"]
-        EX["app/example.py — demo feature (delete when real code arrives)"]
-        subgraph core["app/core/ — bottom layer, imports nothing above it"]
-            CFG["config.py — env settings, one named accessor per key"]
-            CST["constants.py — fixed design decisions"]
-            LOG["logging_config.py — one handler, INFO/DEBUG, JSON option"]
-        end
+    subgraph ref["📚 Reference side — run once, and again per new set (minutes, no training)"]
+        TCG["TCGdex API<br/>~22k card images + metadata"] --> SYNC["sync<br/>download into SQLite + image cache"]
+        SYNC --> IDX["index build<br/>fingerprint every card:<br/>perceptual hashes + embeddings"]
+        IDX --> STORE[("the index<br/>hashes · embedding matrices · card DB")]
     end
-    subgraph gate["Quality gate — identical in pre-commit, Claude hooks, and Bitbucket CI"]
-        G["Ruff lint+format · mypy · pytest (offline) · Bandit · detect-secrets · pip-audit"]
+
+    subgraph rec["📸 Recognition side — every photo / webcam frame (milliseconds)"]
+        IMG["photo or frame"] --> DET["detect the card's outline<br/>(OpenCV contours)"]
+        DET --> WARP["straighten it —<br/>perspective-warp to a flat 630×880 card"]
+        WARP --> SIG["run 4 signals in parallel"]
+        SIG --> H["hashes<br/>great on clean images"]
+        SIG --> E["embeddings (frozen encoder)<br/>robust to glare & angle"]
+        SIG --> O["OCR the bottom strip<br/>'025/193' + set code"]
+        SIG --> SYM["set-symbol match<br/>for old cards w/o set code"]
+        H & E & SYM --> FUSE["fuse into one ranked list<br/>(weighted scores)"]
+        O -- "boosts cards whose printed<br/>number agrees, never a hard gate" --> FUSE
+        FUSE --> DECIDE{"confident?"}
+        DECIDE -- yes --> VAR["check print variants on the winner:<br/>reverse holo · 1st Edition · shadowless · promo stamp"]
+        DECIDE -- close call --> ALT["return best guess + alternates"]
+        VAR --> OUT(["🎴 Pikachu · Paldea Evolved · 025/193<br/>confidence 0.93 · reverse holo"])
     end
-    TESTS["tests/ — offline pytest suite"]
-    MAIN --> EX --> core
-    TESTS -.verifies.-> app
-    app -.every commit & PR.-> gate
+
+    subgraph train["🏋️ Training side — one-time, optional, on a GPU box"]
+        AUG["clean renders + synthetic damage:<br/>glare · perspective · blur · fingers"] --> FT["fine-tune the encoder to ignore<br/>photography, not to know cards"]
+        FT --> ONNX["export to ONNX"]
+    end
+
+    STORE -.->|"nearest-neighbour lookup"| E
+    STORE -.->|"validates number/total"| O
+    ONNX -.->|"drop in + reindex —<br/>new sets still need no training"| IDX
 ```
 
-</details>
+Reading the diagram in one breath: **top-left** happens once (and per new set) — download, fingerprint, store. **Middle** happens per photo — find the card, flatten it, fingerprint it four different ways, merge the votes, and only claim a match when the evidence is strong; the OCR'd collector number is what separates two printings of the same artwork. **Bottom** happened once on a GPU: the encoder was taught that a glared, tilted, blurry photo of a card is *the same card* as its clean render — it learned to ignore cameras, not to memorize cards, which is why it never needs retraining.
 
-Two rules carry most of the design: **settings vs constants** (varies per environment → accessor in `config.py`; fixed design choice → constant in `constants.py`; `os.environ` is never read anywhere else) and **`app/core/` never imports from the rest of `app/`** — that's what keeps the test suite offline.
+Webcam mode adds one wrapper: results are aggregated over a sliding window of frames and a card is only announced once it wins several frames in a row — one stable answer per card shown, instead of a flickering guess per frame.
 
 ## The Claude Code stack
 
 The `.claude/` directory turns a session into a guarded feedback loop. Everything below is repo-contained — clone + Claude Code is the whole install.
-
-![The Claude Code automation loop](assets/claude-code-stack.png)
-
-<details>
-<summary>Diagram source (mermaid) — regenerate with <code>npx -y @mermaid-js/mermaid-cli -i chart.mmd -o assets/claude-code-stack.png -b white -s 2</code></summary>
 
 ```mermaid
 flowchart TD
@@ -84,8 +88,6 @@ flowchart TD
     COMMIT -.source changes stale pages.-> AUTO -.rewrites & re-verifies.-> WIKI
 ```
 
-</details>
-
 The pieces, in one table:
 
 | Piece | Where | What it does |
@@ -97,11 +99,10 @@ The pieces, in one table:
 | **Permissions** | `.claude/settings.json` | Pre-approved gate/git/toolkit commands (no prompt fatigue); reads of `.env` denied |
 | **Headroom** (optional) | `scripts/claude-headroom.*` | Start a session behind a context-compression proxy for token-heavy work |
 
-### What this means for you, day one
+### Day-one workflow
 
 1. Run `claude` in the repo and just work — conventions are enforced, not memorized.
 2. Trust the injections: the session brief, wiki routing, and runbook hints exist so neither you nor the agent rediscovers known things.
 3. When a commit gets blocked, the message says exactly why and how to proceed — the escapes (`OPENWIKI_SKIP=1`, `VERSION_OK=1`) are deliberate, explained exceptions, not workarounds.
 4. Ship with `/ship`: Conventional Commits, semver bump, `dev` as trunk (there is no `main`), PRs into `dev`.
 5. Docs stay honest by construction: change code → the covering wiki page goes stale → `/openwiki` fixes it → the commit guard keeps everyone honest in between.
-6. The setup improves itself: diagnosed a tricky error? `/runbook-add`. A session felt slow or naggy? `/tune` finds the friction and proposes the config fix.

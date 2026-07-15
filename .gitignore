@@ -21,6 +21,10 @@ CLAUDE.local.md
 /data/
 *.onnx
 
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+
 # IDE / OS
 .vscode/
 .idea/
