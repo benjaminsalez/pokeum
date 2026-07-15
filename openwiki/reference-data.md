@@ -2,6 +2,7 @@
 title: Reference data & index
 sources: ["app/reference/**", "scripts/export_embedder.py"]
 read-when: "changing TCGdex sync, the SQLite catalogue schema, image caching, index build/load, or the ONNX embedder export"
+verified: 26c9ccc9aeb1
 ---
 
 # Reference data & index

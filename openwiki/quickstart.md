@@ -1,6 +1,6 @@
 ---
 title: OpenWiki quickstart
-verified: 0e0f8b0c175f
+verified: 26c9ccc9aeb1
 ---
 
 # pokeum — Pokémon card recognizer
