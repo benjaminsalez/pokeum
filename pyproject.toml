@@ -1,0 +1,55 @@
+[project]
+name = "pokeum"
+version = "1.0.0"
+requires-python = ">=3.13"
+
+[tool.ruff]
+target-version = "py313"
+# Concise one-line findings: tool output feeds agent context, keep it lean.
+output-format = "concise"
+line-length = 100
+src = ["."]
+
+[tool.ruff.lint]
+# Pragmatic, widely-used rule set:
+#   E/W  pycodestyle      F   pyflakes
+#   I    isort            UP  pyupgrade
+#   B    flake8-bugbear   C4  flake8-comprehensions
+#   D    pydocstyle       (Google-style docstrings are mandatory)
+select = ["E", "W", "F", "I", "UP", "B", "C4", "D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Tests document themselves through their names; full docstring blocks add noise.
+"tests/*" = ["D"]
+
+[tool.ruff.format]
+# Ruff's formatter is Black-compatible.
+quote-style = "double"
+
+[tool.pytest.ini_options]
+# Offline unit suite: pure logic only (no network, no external services).
+testpaths = ["tests"]
+# -q -ra --no-header: quiet pass, terse summary of non-passes, no banner —
+# test output feeds agent context, keep it lean.
+addopts = "-q -ra --no-header"
+
+[tool.bandit]
+# Static security scan of our own code; runs in pre-commit and CI:
+#     python -m bandit -c pyproject.toml -r app main.py
+# Tests are excluded: B101 flags every pytest `assert`.
+exclude_dirs = ["tests", ".venv"]
+
+[tool.mypy]
+# Type hints are mandatory; mypy verifies they are
+# also *correct*. Runs in pre-commit and on demand: `python -m mypy`.
+python_version = "3.13"
+files = ["app", "main.py", "tests"]
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+# Third-party packages without type stubs would otherwise add noise; our own
+# code is fully checked.
+ignore_missing_imports = true

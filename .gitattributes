@@ -1,0 +1,14 @@
+# Normalise line endings: LF in the repository for all text files, regardless
+# of the contributor's OS. Ends the CRLF-warning noise on Windows.
+* text=auto
+
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.cfg text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=crlf

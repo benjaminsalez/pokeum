@@ -1,0 +1,68 @@
+"""Perspective rectification to the canonical card.
+
+Warps a detected quad onto a fixed-size, front-facing rectangle so every card is
+compared at the same scale and every fractional crop box lands in the same place.
+When no quad was detected, the whole image is centre-cropped to the card aspect
+and resized instead — good enough for already-cropped scans and screenshots.
+"""
+
+from __future__ import annotations
+
+import cv2
+import numpy as np
+
+from app.core import constants
+from app.vision import geometry
+from app.vision.imaging import resize
+
+_CANON_W = constants.CARD_WIDTH_PX
+_CANON_H = constants.CARD_HEIGHT_PX
+
+
+def rectify(image_rgb: np.ndarray, quad: np.ndarray) -> np.ndarray:
+    """Warp the quad region of an image to the canonical card rectangle.
+
+    Args:
+        image_rgb: Source RGB image.
+        quad: A ``(4, 2)`` quad; corner order is normalised internally.
+
+    Returns:
+        The rectified card as a ``(CARD_HEIGHT_PX, CARD_WIDTH_PX, 3)`` RGB array.
+    """
+    source = geometry.order_corners(quad)
+    dest = np.array(
+        [[0, 0], [_CANON_W - 1, 0], [_CANON_W - 1, _CANON_H - 1], [0, _CANON_H - 1]],
+        dtype=np.float32,
+    )
+    matrix = cv2.getPerspectiveTransform(source, dest)
+    return cv2.warpPerspective(image_rgb, matrix, (_CANON_W, _CANON_H))
+
+
+def center_crop_to_card(image_rgb: np.ndarray) -> np.ndarray:
+    """Centre-crop an image to the card aspect ratio, then resize to canonical.
+
+    Args:
+        image_rgb: Source RGB image (assumed to already frame a card).
+
+    Returns:
+        A canonical-size RGB card.
+    """
+    height, width = image_rgb.shape[:2]
+    target = _CANON_W / _CANON_H
+    current = width / height
+    if current > target:
+        new_w = int(round(height * target))
+        x0 = (width - new_w) // 2
+        cropped = image_rgb[:, x0 : x0 + new_w]
+    else:
+        new_h = int(round(width / target))
+        y0 = (height - new_h) // 2
+        cropped = image_rgb[y0 : y0 + new_h, :]
+    return resize(cropped, _CANON_W, _CANON_H)
+
+
+def rectify_or_whole(image_rgb: np.ndarray, quad: np.ndarray | None) -> np.ndarray:
+    """Rectify the detected quad, or centre-crop the whole image when none exists."""
+    if quad is None:
+        return center_crop_to_card(image_rgb)
+    return rectify(image_rgb, quad)

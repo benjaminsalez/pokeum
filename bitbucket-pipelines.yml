@@ -1,0 +1,56 @@
+# CI for Bitbucket Pipelines: the same quality and security gate as local and
+# pre-commit, run on every pull request and on the `dev` trunk. Tool versions
+# come from the pins in requirements-dev.txt, so CI and local runs are always
+# identical.
+#
+# There is no deploy step — this is a barebones template. Add your own
+# deployment when your project needs one.
+
+image: python:3.13
+
+definitions:
+  caches:
+    # Invalidate the pip cache exactly when a pin changes.
+    pip-reqs:
+      key:
+        files:
+          - requirements.txt
+          - requirements-dev.txt
+      path: ~/.cache/pip
+  steps:
+    - step: &quality-gate
+        name: Lint, format, types, tests
+        max-time: 10
+        caches:
+          - pip-reqs
+        script:
+          - pip install -r requirements-dev.txt
+          - python -m ruff check .
+          - python -m ruff format --check .
+          - python -m mypy
+          - python -m compileall app main.py
+          - python -m pytest
+    - step: &security-scan
+        name: Security scan
+        max-time: 10
+        caches:
+          - pip-reqs
+        script:
+          - pip install -r requirements-dev.txt
+          - python -m bandit -c pyproject.toml -r app main.py
+          - detect-secrets-hook --baseline .secrets.baseline $(git ls-files | grep -vE '^(\.secrets\.baseline|openwiki/\.last-update\.json)$')
+          - python -m pip_audit -r requirements.txt
+
+pipelines:
+  pull-requests:
+    '**':
+      - parallel:
+          - step: *quality-gate
+          - step: *security-scan
+  branches:
+    # Integration trunk: gates rerun on the merge result so a stale-but-green
+    # PR cannot slip broken code through.
+    dev:
+      - parallel:
+          - step: *quality-gate
+          - step: *security-scan

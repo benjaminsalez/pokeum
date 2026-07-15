@@ -1,0 +1,30 @@
+# Runtime dependencies.
+#
+# Pin every package (package==version) so two installs a month apart resolve to
+# the same code. Upgrading is a deliberate, reviewed change: bump the pin, run
+# `python -m pip_audit -r requirements.txt` and the test suite, then commit.
+
+# --- Numerics & imaging -----------------------------------------------------
+numpy==2.2.6
+Pillow==11.0.0
+# Perceptual hashing (pulls scipy + pywavelets). Used for clean-image matching.
+ImageHash==4.3.2
+# Card detection, perspective warp, and webcam capture. Headless build: capture
+# and image ops work; only the GUI (imshow) is absent — scan mode prints results
+# instead of opening a preview window.
+opencv-python-headless==4.12.0.88
+
+# --- Recognition models -----------------------------------------------------
+# Frozen image-encoder inference (e.g. an exported DINOv2-small). No torch at
+# runtime: models are exported to ONNX once on the training box.
+onnxruntime==1.26.0
+# OCR of the collector-number strip. Reuses onnxruntime; ships small PP-OCR
+# models. Chosen over Tesseract (system binary) and EasyOCR (drags in torch).
+rapidocr-onnxruntime==1.4.4
+
+# --- Service & IO -----------------------------------------------------------
+httpx==0.28.1
+fastapi==0.116.1
+uvicorn==0.35.0
+# Multipart form parsing for FastAPI file uploads.
+python-multipart==0.0.20

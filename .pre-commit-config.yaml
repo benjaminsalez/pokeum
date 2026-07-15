@@ -1,0 +1,49 @@
+# Git hooks for everyone, regardless of editor. One-time setup per clone:
+#
+#     pip install -r requirements-dev.txt
+#     pre-commit install
+#
+# All hooks are `language: system`: they run the tools from requirements-dev
+# (same pinned versions as CI and pyproject.toml), need no network, and stay
+# in sync with the project configuration.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check --fix
+        entry: python -m ruff check --fix
+        language: system
+        types: [python]
+
+      - id: ruff-format
+        name: ruff format
+        entry: python -m ruff format
+        language: system
+        types: [python]
+
+      - id: mypy
+        name: mypy
+        entry: python -m mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: bandit
+        name: bandit
+        entry: python -m bandit -c pyproject.toml -r app main.py
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: detect-secrets
+        name: detect-secrets
+        entry: detect-secrets-hook --baseline .secrets.baseline
+        language: system
+        exclude: ^(\.secrets\.baseline|openwiki/\.last-update\.json)$
+
+      - id: pytest
+        name: pytest
+        entry: python -m pytest
+        language: system
+        types: [python]
+        pass_filenames: false

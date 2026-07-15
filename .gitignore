@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Claude Code — personal overrides (the shared setup in .claude/ is committed)
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Local environment / secrets
+.env
+
+# Reference data: downloaded TCGdex images, SQLite catalogue, embedding index,
+# and exported models. Large and fully regenerable via `sync` + `index build`.
+/data/
+*.onnx
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude Code hook state + mypy daemon (per-clone, never committed)
+.claude/hooks/.check_cache
+.claude/hooks/.state/
+.claude/scratch/
+.dmypy.json
+dmypy.json

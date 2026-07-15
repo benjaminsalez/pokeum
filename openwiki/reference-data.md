@@ -1,0 +1,112 @@
+---
+title: Reference data & index
+sources: ["app/reference/**", "scripts/export_embedder.py"]
+read-when: "changing TCGdex sync, the SQLite catalogue schema, image caching, index build/load, or the ONNX embedder export"
+---
+
+# Reference data & index
+
+The catalogue and precomputed artifacts that recognition matches against. This
+layer is what makes **a new set a pure data operation, never training** — the
+core promise of the project (see [quickstart](quickstart.md)).
+
+Everything lives under `DATA_DIR` (default `./data`, gitignored):
+
+```
+data/
+  reference.db        SQLite catalogue: sets, cards, variant flags, perceptual hashes, meta
+  images/{set}/*.png  cached hi-res card images
+  symbols/{set}.png   cached set-symbol images (for the WOTC symbol signal)
+  index/emb_full.npy  full-card embedding matrix   } row order in
+  index/emb_art.npy   artwork-crop embedding matrix } row_ids.json
+  index/row_ids.json
+  models/*.onnx       optional exported encoder (EMBED_MODEL_PATH)
+```
+
+## The store (`app/reference/store.py`)
+
+`ReferenceStore` is a thin, synchronous wrapper over the standard-library
+`sqlite3` — no ORM, no network — so it is trivially testable against a temp-file
+database. It owns the schema (`sets`, `cards`, `hashes`, `meta`) and every
+read/write. It holds only small, queryable data; the large embedding matrices
+live as `.npy` files instead.
+
+Two details matter downstream:
+
+- **`number_key`** — collector numbers are stored normalized (leading zeros
+  stripped) so OCR's `025` matches the catalogue's `25`.
+  `find_card_ids_by_number(number, total)` powers OCR fusion's consistency set.
+- **`era`** — derived from the set's release year (`era_for_year`), used to gate
+  variant checks and pick the set-symbol zone. WOTC-era ≈ released ≤ 2003.
+
+The connection is opened `check_same_thread=False`: the FastAPI service runs sync
+routes in a thread pool and sync uses worker threads. Access is read-mostly and
+CPython's `sqlite3` serializes calls, so sharing one connection is safe.
+
+## Sync (`app/reference/sync.py`)
+
+`sync()` pulls from [TCGdex](https://tcgdex.dev) — a free, keyless catalogue —
+into the store and image cache. It is **incremental and idempotent**: a set whose
+card count already matches is skipped, an image already on disk is not
+re-downloaded, and every record is upserted so re-running only fills gaps.
+
+- [`tcgdex.py`](../app/reference/tcgdex.py) separates transport
+  (`TCGdexClient`, with bounded retries) from interpretation (pure `parse_set` /
+  `parse_card` functions, unit-tested with no network). It also builds the
+  extension-less image/symbol URLs TCGdex serves.
+- Per-card detail fetches (for variant flags and rarity) and image downloads run
+  through a bounded `ThreadPoolExecutor`; **all store writes happen on the main
+  thread** — workers only do network/file IO and return data.
+- [`images.py`](../app/reference/images.py) owns the on-disk layout and writes.
+
+The fallback catalogue API is pokemontcg.io (different response shape — not a
+drop-in); TCGdex is preferred.
+
+## Index build & load (`app/reference/index.py`)
+
+`build_index()` computes what recognition needs and persists it:
+
+- **hashes** — the perceptual-hash family per card, written into the store;
+- **embeddings** — full-card and artwork-crop vectors for every card, appended to
+  the `.npy` matrices with a shared `row_ids.json`.
+
+It is incremental: only cards missing hashes/embeddings are processed. Swapping
+the encoder (a different `Embedder.identifier`, tracked in `meta`) invalidates
+the matrices and forces a full rebuild, because embeddings from different
+encoders are not comparable. Matrix writes are atomic (temp file then
+`os.replace`). `load_embedding_indexes()` / `load_hash_index()` return the
+query-time indexes used by the pipeline.
+
+**The new-set workflow is therefore just:** `sync` (or `sync --set X`) then
+`index build`. Minutes, no training.
+
+## The encoder and `scripts/export_embedder.py`
+
+The embedding signal uses a **frozen** encoder. `load_embedder()` returns an
+`OnnxEmbedder` when `EMBED_MODEL_PATH` exists, else the pure-NumPy
+`HistogramEmbedder` fallback (see [recognition-pipeline](recognition-pipeline.md)).
+
+To get the robust path, export an encoder to ONNX **once** on a machine with
+PyTorch (e.g. a training box) using the dev-only
+[`scripts/export_embedder.py`](../scripts/export_embedder.py) — PyTorch is never
+a runtime dependency. The default exports DINOv2-small (ViT-S/14, 384-d):
+
+```
+python scripts/export_embedder.py --out data/models/dinov2s.onnx
+python main.py index build --full     # rebuild embeddings with the new encoder
+```
+
+A deferred, optional step is fine-tuning that encoder for photography robustness
+(synthetic glare/perspective/blur) — it learns *invariance to photography*, not
+card identities, so new sets still need no training. That tooling is not part of
+this repo.
+
+## Changing this area
+
+- Schema changes go in `store.py`'s `_SCHEMA` with a bumped `SCHEMA_VERSION`;
+  keep the `number_key`/`era` derivations in sync with OCR/variant expectations.
+- Sync parsing is defensive against TCGdex field variation — extend the pure
+  `parse_*` functions and their tests (`tests/test_sync.py` uses
+  `httpx.MockTransport`, fully offline).
+- Never make tests hit the network or download models; inject fakes and use
+  synthetic images (`tests/test_index.py`).
