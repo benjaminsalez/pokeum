@@ -2,6 +2,7 @@
 title: Embedder fine-tune harness
 sources: ["training/**"]
 read-when: "changing the fine-tune training code (loss, augmentations, eval, export), re-running training, or promoting a new encoder artifact"
+verified: b9a6e044d582
 ---
 
 # Embedder fine-tune harness
