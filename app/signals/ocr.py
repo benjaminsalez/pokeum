@@ -111,7 +111,7 @@ class RapidOcrEngine:
 
     def __init__(self) -> None:
         """Construct the underlying RapidOCR reader (loaded lazily on import)."""
-        from rapidocr_onnxruntime import RapidOCR
+        from rapidocr import RapidOCR
 
         self._reader = RapidOCR()
         # The service handles requests in a thread pool; RapidOCR's reader is
@@ -121,10 +121,12 @@ class RapidOcrEngine:
     def read_text(self, image: np.ndarray) -> list[tuple[str, float]]:
         """Return ``(text, confidence)`` pairs found in an RGB image region."""
         with self._lock:
-            result, _ = self._reader(np.asarray(image))
-        if not result:
-            return []
-        return [(str(item[1]), float(item[2])) for item in result]
+            result = self._reader(np.asarray(image))
+        # RapidOCROutput carries parallel txts/scores tuples; both are None
+        # when detection found no text at all.
+        texts = result.txts or ()
+        scores = result.scores or (0.0,) * len(texts)
+        return [(str(text), float(score)) for text, score in zip(texts, scores, strict=False)]
 
 
 def read_card(engine: OcrEngine, card: np.ndarray) -> OcrObservation:

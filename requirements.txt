@@ -6,7 +6,7 @@
 
 # --- Numerics & imaging -----------------------------------------------------
 numpy==2.2.6
-Pillow==11.0.0
+Pillow==12.3.0
 # Perceptual hashing (pulls scipy + pywavelets). Used for clean-image matching.
 ImageHash==4.3.2
 # Card detection, perspective warp, and webcam capture. Headless build: capture
@@ -20,14 +20,19 @@ opencv-python-headless==4.12.0.88
 onnxruntime==1.26.0
 # OCR of the collector-number strip. Reuses onnxruntime; ships small PP-OCR
 # models. Chosen over Tesseract (system binary) and EasyOCR (drags in torch).
-rapidocr-onnxruntime==1.4.4
+# NOTE: rapidocr depends on the full opencv-python distribution, so slim
+# Linux servers additionally need the system libgl1 package.
+rapidocr==3.9.1
 
 # --- Service & IO -----------------------------------------------------------
 httpx==0.28.1
-fastapi==0.116.1
-uvicorn==0.35.0
+fastapi==0.139.1
+# Transitive via fastapi, pinned explicitly: it parses every request and has
+# an active security history, so its version must be deliberate.
+starlette==1.3.1
+uvicorn==0.51.0
 # Multipart form parsing for FastAPI file uploads.
-python-multipart==0.0.20
+python-multipart==0.0.32
 # Loads a local .env into the process environment at startup (main.py); real
 # environment variables always take precedence.
 python-dotenv==1.2.2
