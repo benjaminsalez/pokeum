@@ -16,7 +16,7 @@ import ScannerFrame from "@/components/scanner/ScannerFrame.vue";
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import {
-  cardImageUrl,
+  cardArtUrl,
   identify,
   SCAN_ANNOTATION_SCHEMA_VERSION,
   submitScan,
@@ -411,7 +411,7 @@ function exportCsv(): void {
               class="relative min-h-[8.4rem] overflow-hidden rounded-lg bg-zinc-100 shadow-md [@media(max-height:700px)]:min-h-[7.2rem]"
             >
               <img
-                :src="cardImageUrl(pendingMatch.card_id)"
+                :src="cardArtUrl(pendingMatch)"
                 :alt="pendingMatch.name"
                 class="h-full w-full object-cover"
                 @error="($event.target as HTMLImageElement).style.display = 'none'"
@@ -496,7 +496,7 @@ function exportCsv(): void {
         class="aspect-[63/88] overflow-hidden rounded-lg border-0 bg-muted shadow-none"
       >
         <img
-          :src="cardImageUrl(item.card.card_id)"
+          :src="cardArtUrl(item.card)"
           :alt="item.card.name"
           class="h-full w-full object-cover"
           loading="lazy"

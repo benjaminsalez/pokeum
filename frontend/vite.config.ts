@@ -15,11 +15,11 @@ export default defineConfig({
     // unknown hostnames with a misleading blocked-request error.
     allowedHosts: [".trycloudflare.com", ".ngrok-free.app", ".ngrok.io"],
     // Proxy API calls to the pokeum FastAPI service so no CORS is needed.
+    // The service mounts its routes under /api, so paths forward unchanged.
     proxy: {
       "/api": {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ""),
       },
     },
   },
@@ -29,7 +29,6 @@ export default defineConfig({
       "/api": {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ""),
       },
     },
   },

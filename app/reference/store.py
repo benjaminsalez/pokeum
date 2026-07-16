@@ -446,7 +446,7 @@ class ReferenceStore:
 
 _CARD_SELECT = (
     "c.id, c.name, c.set_id, s.name AS set_name, s.set_code, c.number, "
-    "c.number_total, c.rarity, c.era, c.release_year, c.image_path, "
+    "c.number_total, c.rarity, c.era, c.release_year, c.image_url, c.image_path, "
     "c.has_reverse, c.has_first_edition, c.has_holo, c.has_normal"
 )
 # Full statements are assembled once from the fixed column list above (never any
@@ -469,6 +469,7 @@ def _row_to_card(row: sqlite3.Row) -> CardRef:
         rarity=row["rarity"],
         era=row["era"] or constants.ERA_MODERN,
         release_year=row["release_year"],
+        image_url=row["image_url"],
         image_path=row["image_path"],
         has_reverse=bool(row["has_reverse"]),
         has_first_edition=bool(row["has_first_edition"]),

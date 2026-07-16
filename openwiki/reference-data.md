@@ -2,7 +2,7 @@
 title: Reference data & index
 sources: ["app/reference/**", "scripts/export_embedder.py"]
 read-when: "changing TCGdex sync, the SQLite catalogue schema, image caching, index build/load, or the ONNX embedder export"
-verified: 1b25d297d79f
+verified: 6f101a33957a
 ---
 
 # Reference data & index
@@ -30,6 +30,12 @@ consumer works at or below that size (224px embeddings, hashes, 320px thumbs,
 48px symbols), and the full ~22k-card catalogue costs ~1.5 GB instead of ~18 GB.
 Trap to remember: on TCGdex the *extension* drives the encoding — `low.png` is
 still 600×825 lossless (~900 KB); only the webp variants are small.
+
+**Servers don't need `images/` or `thumbs/`**: each card row stores its TCGdex
+CDN `image_url` (surfaced through `CardRef` and the API), and the thumbnail
+endpoint redirects there when no local image exists. `images/` is a build-time
+input for `index build`; a deployment only needs `reference.db`, `index/`,
+`symbols/` (the symbol signal loads them at startup), and the ONNX model.
 
 ## The store (`app/reference/store.py`)
 

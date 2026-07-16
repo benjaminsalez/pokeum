@@ -2,7 +2,7 @@
 title: Troubleshooting runbook
 sources: ["app/core/**", "main.py", ".env.example"]
 read-when: "a command failed with an error you recognize from this repo, or you are adding a newly diagnosed failure mode"
-verified: 1b25d297d79f
+verified: 6f101a33957a
 ---
 
 # Troubleshooting runbook

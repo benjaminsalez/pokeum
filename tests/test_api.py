@@ -77,20 +77,36 @@ def _recognizer(tmp_path: Path) -> Recognizer:
         has_holo=False,
         has_normal=True,
     )
+    store.upsert_card(
+        card_id="s1-2",
+        set_id="s1",
+        name="Beta",
+        number="2",
+        number_total=2,
+        rarity="Rare",
+        release_year=2020,
+        image_url="https://assets.tcgdex.net/en/x/s1/2/low.webp",
+        has_reverse=False,
+        has_first_edition=False,
+        has_holo=False,
+        has_normal=True,
+    )
     return Recognizer(store, hash_index=HashIndex([], {}))
 
 
 def test_health_reports_card_count(tmp_path: Path) -> None:
     with TestClient(create_app(_recognizer(tmp_path))) as client:
-        body = client.get("/health").json()
+        body = client.get("/api/health").json()
     assert body["status"] == "ok"
-    assert body["cards_indexed"] == 1
+    assert body["cards_indexed"] == 2
     assert body["embedder_loaded"] is False
 
 
 def test_identify_accepts_image_upload(tmp_path: Path) -> None:
     with TestClient(create_app(_recognizer(tmp_path))) as client:
-        response = client.post("/identify", files={"file": ("card.png", _png_bytes(), "image/png")})
+        response = client.post(
+            "/api/identify", files={"file": ("card.png", _png_bytes(), "image/png")}
+        )
     assert response.status_code == 200
     assert response.json()["status"] == "no_match"  # empty index -> nothing to match
 
@@ -98,7 +114,7 @@ def test_identify_accepts_image_upload(tmp_path: Path) -> None:
 def test_identify_require_detection_reports_no_card(tmp_path: Path) -> None:
     with TestClient(create_app(_recognizer(tmp_path))) as client:
         response = client.post(
-            "/identify?require_detection=true",
+            "/api/identify?require_detection=true",
             files={"file": ("card.png", _png_bytes(), "image/png")},
         )
     # The solid-colour test image has no card quad: with the flag the API
@@ -114,7 +130,7 @@ def test_identify_detection_failure_dumps_frame(
     monkeypatch.setenv("SCAN_DEBUG_DIR", str(dump_dir))
     with TestClient(create_app(_recognizer(tmp_path))) as client:
         response = client.post(
-            "/identify?require_detection=true",
+            "/api/identify?require_detection=true",
             files={"file": ("card.png", _png_bytes(), "image/png")},
         )
     assert response.status_code == 200
@@ -126,7 +142,7 @@ def test_identify_detection_failure_dumps_frame(
 def test_identify_rejects_non_image(tmp_path: Path) -> None:
     with TestClient(create_app(_recognizer(tmp_path))) as client:
         response = client.post(
-            "/identify", files={"file": ("x.txt", b"not an image", "text/plain")}
+            "/api/identify", files={"file": ("x.txt", b"not an image", "text/plain")}
         )
     assert response.status_code == 400
 
@@ -135,7 +151,7 @@ def test_submit_scan_stores_in_background(tmp_path: Path) -> None:
     collector = _FakeCollector()
     with TestClient(create_app(_recognizer(tmp_path), collector)) as client:
         response = client.post(
-            "/scans",
+            "/api/scans",
             files={"file": ("scan.jpg", b"jpeg-bytes", "image/jpeg")},
             data={"annotation": _annotation()},
         )
@@ -153,7 +169,7 @@ def test_submit_scan_without_consent_is_dropped(tmp_path: Path) -> None:
     collector = _FakeCollector()
     with TestClient(create_app(_recognizer(tmp_path), collector)) as client:
         response = client.post(
-            "/scans",
+            "/api/scans",
             files={"file": ("scan.jpg", b"jpeg-bytes", "image/jpeg")},
             data={"annotation": _annotation(consent=False)},
         )
@@ -165,7 +181,7 @@ def test_submit_scan_without_consent_is_dropped(tmp_path: Path) -> None:
 def test_submit_scan_rejects_malformed_annotation(tmp_path: Path) -> None:
     with TestClient(create_app(_recognizer(tmp_path), _FakeCollector())) as client:
         response = client.post(
-            "/scans",
+            "/api/scans",
             files={"file": ("scan.jpg", b"jpeg-bytes", "image/jpeg")},
             data={"annotation": "{not json"},
         )
@@ -174,15 +190,32 @@ def test_submit_scan_rejects_malformed_annotation(tmp_path: Path) -> None:
 
 def test_card_image_missing_returns_404(tmp_path: Path) -> None:
     with TestClient(create_app(_recognizer(tmp_path))) as client:
-        # Card exists but has no cached image; unknown card also 404s.
-        assert client.get("/cards/s1-1/image").status_code == 404
-        assert client.get("/cards/nope/image").status_code == 404
+        # Card exists but has neither cached image nor CDN URL; unknown card also 404s.
+        assert client.get("/api/cards/s1-1/image").status_code == 404
+        assert client.get("/api/cards/nope/image").status_code == 404
+
+
+def test_card_image_redirects_to_cdn_when_local_missing(tmp_path: Path) -> None:
+    with TestClient(create_app(_recognizer(tmp_path))) as client:
+        response = client.get("/api/cards/s1-2/image", follow_redirects=False)
+    # No local image cache, but the catalogue knows the CDN URL: redirect there.
+    assert response.status_code == 307
+    assert response.headers["location"] == "https://assets.tcgdex.net/en/x/s1/2/low.webp"
+    assert "max-age" in response.headers["cache-control"]
+
+
+def test_card_detail_includes_image_url(tmp_path: Path) -> None:
+    with TestClient(create_app(_recognizer(tmp_path))) as client:
+        with_url = client.get("/api/cards/s1-2").json()
+        without_url = client.get("/api/cards/s1-1").json()
+    assert with_url["image_url"] == "https://assets.tcgdex.net/en/x/s1/2/low.webp"
+    assert without_url["image_url"] is None
 
 
 def test_get_card_found_and_missing(tmp_path: Path) -> None:
     with TestClient(create_app(_recognizer(tmp_path))) as client:
-        found = client.get("/cards/s1-1")
-        missing = client.get("/cards/does-not-exist")
+        found = client.get("/api/cards/s1-1")
+        missing = client.get("/api/cards/does-not-exist")
     assert found.status_code == 200
     assert found.json()["card_id"] == "s1-1"
     assert missing.status_code == 404

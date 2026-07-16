@@ -1,6 +1,6 @@
 ---
 title: OpenWiki quickstart
-verified: 1b25d297d79f
+verified: 6f101a33957a
 ---
 
 # pokeum — Pokémon card recognizer
@@ -89,9 +89,9 @@ python main.py index build
 python main.py identify path/to/card.jpg            # human-readable
 python main.py identify path/to/card.jpg --json     # machine-readable
 
-# live webcam, or serve the HTTP API
+# live webcam, or serve the HTTP API (+ the built frontend, if present)
 python main.py scan
-python main.py serve       # POST /identify, POST /scans, GET /health, GET /cards/{id}
+python main.py serve       # /api: POST /identify, POST /scans, GET /health, GET /cards/{id}
 
 # browser scan UI (Vue): start the API first, then
 cd frontend && npm install && npm run dev    # http://localhost:5173

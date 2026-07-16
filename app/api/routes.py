@@ -13,7 +13,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import ValidationError
 
 from app.api.schemas import (
@@ -185,19 +185,30 @@ def get_card(request: Request, card_id: str) -> dict:
     return card.as_dict()
 
 
-@router.get("/cards/{card_id}/image")
-def get_card_image(request: Request, card_id: str) -> FileResponse:
+@router.get("/cards/{card_id}/image", response_model=None)
+def get_card_image(request: Request, card_id: str) -> FileResponse | RedirectResponse:
     """Serve a small cached thumbnail of one card (used by the scan UI).
 
     The hi-res reference PNG is ~1 MB; the UI needs ~320px. A JPEG thumbnail is
     derived lazily on first request, cached on disk, and served with immutable
-    cache headers so repeat views never refetch.
+    cache headers so repeat views never refetch. Deployments that don't carry
+    the reference image cache redirect to the TCGdex CDN instead, so the
+    endpoint works without ``data/images/`` on disk.
 
     Raises:
-        HTTPException: 404 when the card is unknown or its image is not cached.
+        HTTPException: 404 when the card is unknown, or when it has neither a
+            cached image nor a known CDN URL.
     """
     card = _recognizer(request).store.get_card(card_id)
-    if card is None or not card.image_path or not Path(card.image_path).is_file():
+    if card is None:
+        raise HTTPException(status_code=404, detail=f"no image for card: {card_id}")
+    if not card.image_path or not Path(card.image_path).is_file():
+        if card.image_url:
+            return RedirectResponse(
+                card.image_url,
+                status_code=307,
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
         raise HTTPException(status_code=404, detail=f"no image for card: {card_id}")
     thumb = images.ensure_thumbnail(
         Path(card.image_path),

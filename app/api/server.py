@@ -10,18 +10,21 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
+from app.api.static import SPAStaticFiles
 from app.collect import ScanCollector
+from app.core import config
 from app.recognize.factory import build_recognizer
 from app.recognize.pipeline import Recognizer
 
 logger = logging.getLogger(__name__)
 
-_API_VERSION = "1.2.0"
+_API_VERSION = "1.4.0"
 
 
 def create_app(
@@ -61,5 +64,14 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.include_router(router)
+    app.include_router(router, prefix="/api")
+
+    # Single-origin serving: the built frontend at the root makes the deployed
+    # service one hostname for both app and API — no cross-origin setup, and
+    # the client's default "/api" base works unchanged. Absent dist dir (pure
+    # API deployments, dev machines without a build) simply skips the mount.
+    dist = config.frontend_dist_dir()
+    if dist and Path(dist).is_dir():
+        app.mount("/", SPAStaticFiles(directory=dist, html=True), name="spa")
+        logger.info("serving frontend from %s", dist)
     return app

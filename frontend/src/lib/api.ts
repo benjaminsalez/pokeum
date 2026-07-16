@@ -25,6 +25,7 @@ export interface CandidateOut {
   set: CardSet;
   number: string;
   rarity: string | null;
+  image_url: string | null;
   confidence: number;
   signals: Record<string, number>;
   variants?: VariantGuess[];
@@ -91,6 +92,15 @@ export async function submitScan(blob: Blob, annotation: ScanAnnotation): Promis
 /** URL of a card's reference image (served by the API from its cache). */
 export function cardImageUrl(cardId: string): string {
   return `${API_BASE}/cards/${encodeURIComponent(cardId)}/image`;
+}
+
+/**
+ * Best URL for a card's artwork: the TCGdex CDN when the catalogue knows it
+ * (fast, cacheable offline, no server disk), else the API image endpoint —
+ * which itself redirects to the CDN when the server has no local image cache.
+ */
+export function cardArtUrl(card: Pick<CandidateOut, "card_id" | "image_url">): string {
+  return card.image_url ?? cardImageUrl(card.card_id);
 }
 
 /** Check the API is up and how many cards are indexed. */

@@ -2,7 +2,7 @@
 title: Service, CLI, frontend & webcam
 sources: ["app/cli.py", "app/api/**", "app/collect/**", "main.py", "app/recognize/factory.py", "app/recognize/webcam.py", "app/recognize/eval.py", "frontend/**", "scripts/make_synthetic_eval.py"]
 read-when: "changing the CLI commands, the FastAPI endpoints, the Vue scan frontend, webcam scanning, the recognizer factory/wiring, or the eval harness"
-verified: 1b25d297d79f
+verified: 6f101a33957a
 ---
 
 # Service, CLI, frontend & webcam
@@ -49,10 +49,12 @@ ready-made recognizer to skip that cost.
 
 Routes ([`routes.py`](../app/api/routes.py)) are thin — decode, call the shared
 recognizer, return its own dict for FastAPI to validate against the response
-models in [`schemas.py`](../app/api/schemas.py):
+models in [`schemas.py`](../app/api/schemas.py). **All API routes are mounted
+under `/api`** so the built frontend can be served from the same origin at the
+root (the client's default `/api` base then works identically in dev and prod):
 
-- `GET /health` → `{status, cards_indexed, embedder_loaded}`
-- `POST /identify` (multipart `file`, query `top_k`, `require_detection`) → the
+- `GET /api/health` → `{status, cards_indexed, embedder_loaded}`
+- `POST /api/identify` (multipart `file`, query `top_k`, `require_detection`) → the
   recognition result; `400` when the upload cannot be decoded as an image.
   Decode + recognition run via `run_in_threadpool` (they are CPU-bound; inline
   they would stall every concurrent request), and the upload is capped to
@@ -60,18 +62,31 @@ models in [`schemas.py`](../app/api/schemas.py):
   `no_card_detected` when no card quad is found instead of guessing from the
   whole frame — the live camera path sets it; pre-cropped photo uploads keep
   the whole-frame fallback.
-- `POST /scans` (multipart `file` + `annotation` JSON form field) → `202`
+- `POST /api/scans` (multipart `file` + `annotation` JSON form field) → `202`
   immediately; the upload to S3 happens as a background task after the
   response. Annotations without `consent: true` are dropped server-side with an
   identical response. `422` on a malformed annotation.
-- `GET /cards/{card_id}` → catalogue detail; `404` when unknown
-- `GET /cards/{card_id}/image` → a 320px JPEG thumbnail of the card, derived
-  lazily from the cached reference image into `data/thumbs/` and served with
-  immutable cache headers (the scan UI's confirmation sheet uses this — never
-  serve the full reference image to a UI)
+- `GET /api/cards/{card_id}` → catalogue detail (includes the card's TCGdex CDN
+  `image_url`, which every candidate in `/api/identify` responses also
+  carries); `404` when unknown
+- `GET /api/cards/{card_id}/image` → a 320px JPEG thumbnail of the card,
+  derived lazily from the cached reference image into `data/thumbs/` and served
+  with immutable cache headers. When the server has no local image cache the
+  endpoint **redirects (307) to the card's TCGdex CDN URL** instead, so
+  deployments never need to carry `data/images/`; `404` only when the card has
+  neither.
 
-CORS is wide open on purpose: the service is local and account-less, and the
-frontend may load from another origin (dev server, tunnel). Start it with
+**Single-origin serving:** when the configured `FRONTEND_DIST_DIR` (default
+`./frontend/dist`) exists, `create_app()` mounts it at the root via
+`SPAStaticFiles` ([`static.py`](../app/api/static.py)) — unknown non-API paths
+fall back to `index.html` (client-side routes, installed-PWA launches), unknown
+`/api/*` paths stay JSON 404s, and `index.html`/service-worker files are served
+`no-cache` so deployed updates propagate while Vite's hashed assets stay
+long-cached. Empty setting or missing directory skips the mount (pure-API
+deployments, dev machines without a build).
+
+CORS is wide open on purpose: the service is account-less, and the frontend may
+load from another origin (dev server, tunnel). Start it with
 `python main.py serve` (binds `API_HOST:API_PORT`, defaults `127.0.0.1:8000`).
 
 ## Scan collection (`app/collect/`)
@@ -100,7 +115,9 @@ view (guide frame, one scan button, then a confirmation sheet showing the
 matched card's thumbnail with Skip/Save) and an export view (a thumbnail grid
 of the collection with a TCGplayer-style CSV download —
 [`exporters.ts`](../frontend/src/lib/exporters.ts)).
-No confidence values are shown anywhere by design.
+No confidence values are shown anywhere by design. Card art renders via
+`cardArtUrl` ([`api.ts`](../frontend/src/lib/api.ts)): the candidate's TCGdex
+CDN `image_url` when known, else the API image endpoint.
 
 Camera captures are **cropped to the guide frame** before upload: `captureFrame`
 maps the ScannerFrame's on-screen rect through the video's `object-cover`

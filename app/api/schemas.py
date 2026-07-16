@@ -27,6 +27,7 @@ class CardBase(BaseModel):
     set: SetOut
     number: str
     rarity: str | None = None
+    image_url: str | None = None
 
 
 class VariantOut(BaseModel):

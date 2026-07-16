@@ -86,6 +86,11 @@ def api_port() -> int:
     return int(get("API_PORT", "8000"))
 
 
+def frontend_dist_dir() -> str:
+    """Directory of the built frontend served at the root; empty disables serving."""
+    return get("FRONTEND_DIST_DIR", "./frontend/dist")
+
+
 # --- Webcam ---------------------------------------------------------------
 def webcam_index() -> int:
     """OpenCV capture-device index used by ``pokeum scan``."""

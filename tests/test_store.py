@@ -53,6 +53,7 @@ def test_upsert_and_get_card_roundtrip(tmp_path: Path) -> None:
     assert card.set_code == "PAL"
     assert card.era == "modern"
     assert card.has_reverse is True
+    assert card.image_url == "http://x/25/high.png"
     store.close()
 
 

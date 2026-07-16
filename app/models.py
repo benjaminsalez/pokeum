@@ -57,6 +57,7 @@ class CardRef:
         rarity: Rarity string as reported by the catalogue, if known.
         era: Coarse era bucket used for variant gating (``wotc`` or ``modern``).
         release_year: Year the set was released, if known.
+        image_url: Public TCGdex CDN URL of the card image, if known.
         image_path: Local path to the cached reference image, if downloaded.
         has_reverse: Whether the catalogue lists a reverse-holo variant.
         has_first_edition: Whether the catalogue lists a 1st Edition variant.
@@ -74,6 +75,7 @@ class CardRef:
     rarity: str | None = None
     era: str = "modern"
     release_year: int | None = None
+    image_url: str | None = None
     image_path: str | None = None
     has_reverse: bool = False
     has_first_edition: bool = False
@@ -95,6 +97,7 @@ class CardRef:
             "set": {"id": self.set_id, "name": self.set_name, "code": self.set_code},
             "number": self.display_number,
             "rarity": self.rarity,
+            "image_url": self.image_url,
         }
 
 
