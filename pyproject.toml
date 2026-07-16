@@ -1,6 +1,6 @@
 [project]
 name = "pokeum"
-version = "1.5.1"
+version = "1.5.2"
 description = "Multi-signal Pokémon card recognizer: scan cards with your phone, build and export your collection. Self-hosted FastAPI service + installable Vue PWA."
 authors = [{ name = "TBLgGamin" }]
 license = "MIT"

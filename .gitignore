@@ -16,6 +16,9 @@ CLAUDE.local.md
 # Local environment / secrets
 .env
 
+# Personal deployment notes/config (not part of the public repo)
+/deploy/
+
 # Reference data: downloaded TCGdex images, SQLite catalogue, embedding index,
 # and exported models. Large and fully regenerable via `sync` + `index build`.
 /data/

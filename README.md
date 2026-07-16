@@ -28,16 +28,20 @@ Requirements: Python 3.13+, Node 22+ (only to build the frontend), ~2 GB disk fo
 python -m venv .venv && . .venv/Scripts/activate   # or bin/activate on Linux
 pip install -r requirements.txt
 
-# 2. reference data: download the card catalogue from TCGdex (once, ~20k cards)
+# 2. the fine-tuned image encoder (one file, ~85 MB, from GitHub Releases)
+curl -L --create-dirs -o data/models/dinov2s-ft-v1.onnx \
+  https://github.com/TBLgGamin/pokeum/releases/latest/download/dinov2s-ft-v1.onnx
+
+# 3. reference data: download the card catalogue from TCGdex (once, ~20k cards)
 python main.py sync
 
-# 3. precompute the matching index (hashes + embeddings)
+# 4. precompute the matching index (hashes + embeddings)
 python main.py index build
 
-# 4. build the web app
+# 5. build the web app
 cd frontend && npm ci && npm run build && cd ..
 
-# 5. serve — API under /api, web app at the root
+# 6. serve — API under /api, web app at the root
 python main.py serve            # http://127.0.0.1:8000
 ```
 
@@ -105,7 +109,7 @@ Deeper docs live in [`openwiki/quickstart.md`](openwiki/quickstart.md) — the r
 
 ## Deployment
 
-[`deploy/`](deploy/README.md) contains a production runbook: a systemd unit for the service, a Cloudflare Tunnel example for HTTPS, and the minimal set of data artifacts a server needs (~250 MB — the reference DB, embedding index, ONNX model, and set symbols; card images are served from the TCGdex CDN).
+The service is a single process: run `python main.py serve` under your process manager of choice (systemd, Docker, …) and put TLS in front of it (reverse proxy or a Cloudflare Tunnel pointing at `http://127.0.0.1:8000`). A production server only needs ~165 MB of data artifacts — `data/reference.db`, `data/index/`, `data/symbols/`, and the ONNX model; card images are served from the TCGdex CDN, so `data/images/` (~380 MB) can stay on the machine that built the index. Recommended production env: `API_HOST=127.0.0.1`, `LOG_JSON=true`, `FRONTEND_DIST_DIR=./frontend/dist`.
 
 ## Development
 
@@ -122,7 +126,7 @@ This repo also ships a self-enforcing agent workflow (Claude Code and Codex): ru
 ## Credits & legal
 
 - **[TCGdex](https://tcgdex.dev)** — the free, keyless card catalogue and image CDN this project is built on.
-- **[DINOv2](https://github.com/facebookresearch/dinov2)** (Meta AI) — the image encoder backbone.
+- **[DINOv2](https://github.com/facebookresearch/dinov2)** (Meta AI, Apache 2.0) — the image encoder backbone. The fine-tuned encoder weights (`dinov2s-ft-v1.onnx`, a DINOv2-small derivative) are published on this repo's [Releases](https://github.com/TBLgGamin/pokeum/releases) page under Apache 2.0 — use them however you want; the full training harness to reproduce or improve them is in [`training/`](training/README.md).
 - **[RapidOCR](https://github.com/RapidAI/RapidOCR)** — collector-number OCR.
 
 pokeum is a fan-made tool, not affiliated with, endorsed, or sponsored by Nintendo, Creatures Inc., GAME FREAK inc., or The Pokémon Company International. Pokémon and Pokémon character names are trademarks of Nintendo. Card images remain © their respective rights holders and are served from TCGdex.
