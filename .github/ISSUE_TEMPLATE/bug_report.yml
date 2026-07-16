@@ -1,0 +1,36 @@
+name: Bug report
+description: Something broke or a card is recognized wrong
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: card
+    attributes:
+      label: Card involved (for recognition issues)
+      description: Card id or name + set + number, e.g. `sv02-025` / Pikachu · Paldea Evolved · 025/193
+      placeholder: sv02-025
+  - type: textarea
+    id: photo-conditions
+    attributes:
+      label: Photo / scan conditions
+      description: Camera scan or upload? Lighting, sleeve/toploader, angle? Attach the photo if you're comfortable sharing it — it helps enormously.
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS + browser (frontend issues) or Python version + OS (service/CLI issues), and whether the app is installed as a PWA.
+      placeholder: Android 15 / Chrome 138, installed PWA
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant service output. `LOG_LEVEL=debug` prints per-scan recognition diagnostics.
+      render: text

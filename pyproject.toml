@@ -1,7 +1,17 @@
 [project]
 name = "pokeum"
-version = "1.5.0"
+version = "1.5.1"
+description = "Multi-signal Pokémon card recognizer: scan cards with your phone, build and export your collection. Self-hosted FastAPI service + installable Vue PWA."
+authors = [{ name = "TBLgGamin" }]
+license = "MIT"
+license-files = ["LICENSE"]
+readme = "README.md"
 requires-python = ">=3.13"
+
+[project.urls]
+Homepage = "https://github.com/TBLgGamin/pokeum"
+Repository = "https://github.com/TBLgGamin/pokeum"
+Issues = "https://github.com/TBLgGamin/pokeum/issues"
 
 [tool.ruff]
 target-version = "py313"

@@ -1,24 +1,69 @@
 # pokeum
 
-Point a camera at a Pokémon card and pokeum tells you **exactly which printing it is** — name, set, and collector number (e.g. *Pikachu · Paldea Evolved · 025/193*) plus print variants like reverse holo or 1st Edition. It ships as a Python library, a CLI, and a small HTTP API.
+[![CI](https://github.com/TBLgGamin/pokeum/actions/workflows/ci.yml/badge.svg)](https://github.com/TBLgGamin/pokeum/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Python 3.13](https://img.shields.io/badge/python-3.13-blue)
+
+Point your phone at a Pokémon card and pokeum tells you **exactly which printing it is** — name, set, and collector number (e.g. *Pikachu · Paldea Evolved · 025/193*) plus print variants like reverse holo or 1st Edition. Scan card after card, build your collection, export it as a TCGplayer-ready CSV.
+
+Fully self-hosted: a FastAPI recognition service plus an installable web app (PWA). No accounts, no cloud dependency, no per-scan fees.
+
+<!-- TODO: screenshots — docs/media/scan.gif (live scan → match sheet) and docs/media/collection.png (collection grid) -->
+
+## Features
+
+- **📸 Live camera scanning** — point, tap, confirm. A guide frame crops the capture; the match sheet shows the card art for a one-tap save. Photo upload works too.
+- **🧠 Multi-signal recognition, no per-set training** — perceptual hashes + a fine-tuned DINOv2 image encoder (ONNX, CPU-only at runtime) + OCR of the collector number + set-symbol matching, fused into one confidence-ranked answer. A newly released set becomes recognizable with one data sync — never a retrain.
+- **✨ Variant detection** — reverse holo, 1st Edition, shadowless, promo stamps.
+- **📱 Installable app** — the website is a PWA: "Add to Home Screen" on Android and iOS gives an app icon, fullscreen launch, offline card art, and a collection that persists on the device.
+- **📤 Collection export** — TCGplayer-style CSV or plain text.
+- **🔒 Your infrastructure** — one Python service serves both the API and the built frontend as a single origin. Card images come straight from the TCGdex CDN, so the server stays lean (~250 MB of data artifacts).
+
+## Quickstart (self-host)
+
+Requirements: Python 3.13+, Node 22+ (only to build the frontend), ~2 GB disk for the full catalogue on the machine that builds the index.
 
 ```bash
-python -m venv .venv && . .venv/Scripts/activate
+# 1. backend deps
+python -m venv .venv && . .venv/Scripts/activate   # or bin/activate on Linux
 pip install -r requirements.txt
-python main.py sync              # download the card catalogue from TCGdex (once)
-python main.py index build      # precompute the matching index (once)
-python main.py identify my_card_photo.jpg
-python main.py scan             # live webcam mode
-python main.py serve            # HTTP API on :8000
+
+# 2. reference data: download the card catalogue from TCGdex (once, ~20k cards)
+python main.py sync
+
+# 3. precompute the matching index (hashes + embeddings)
+python main.py index build
+
+# 4. build the web app
+cd frontend && npm ci && npm run build && cd ..
+
+# 5. serve — API under /api, web app at the root
+python main.py serve            # http://127.0.0.1:8000
 ```
 
-Documentation lives in [`openwiki/quickstart.md`](openwiki/quickstart.md); this README is the map, not the manual.
+Or skip the frontend and use the CLI directly:
 
-## How it works, end to end
+```bash
+python main.py identify my_card_photo.jpg
+python main.py scan             # live webcam mode
+```
 
-The one idea that shapes everything: **pokeum never trains a model to recognize cards.** Instead it *looks cards up*. Every card ever printed has a clean reference image on [TCGdex](https://tcgdex.dev); pokeum downloads those once, computes a compact "fingerprint" of each (perceptual hashes + neural-network embeddings from a **frozen** encoder), and stores them in an index. Recognizing a photo is then just: clean the photo up, fingerprint it the same way, and find the closest match — with the card's printed collector number (read by OCR) settling any tie between reprints that share the same artwork.
+Configuration is environment-based with sensible defaults — see [`.env.example`](.env.example) for every key (`python main.py` auto-loads a local `.env`).
 
-Because recognition is a lookup, **a new set costs zero training**: run `sync` + `index build` and its cards are recognizable minutes after release.
+> **Camera + install need HTTPS.** Browsers only expose the camera and the PWA install prompt on secure origins. For production put the service behind TLS — a [Cloudflare Tunnel](deploy/README.md) or any reverse proxy works; `localhost` is exempt during development.
+
+### Install it as an app
+
+Open your deployed site on a phone:
+
+- **Android (Chrome):** tap the "Install app" prompt, or ⋮ → *Add to Home screen*.
+- **iOS (Safari):** Share → *Add to Home Screen*.
+
+Scanned collections are stored on the device and survive restarts; card art is cached for offline viewing.
+
+## How it works
+
+pokeum never trains a model to recognize cards — it **looks cards up**. Every card has a clean reference image on [TCGdex](https://tcgdex.dev); pokeum downloads those once, fingerprints each (perceptual hashes + embeddings from a **frozen** encoder), and stores them in an index. Recognizing a photo is: find the card's outline, perspective-flatten it, fingerprint it the same way, and take the nearest neighbour — with the OCR'd collector number settling ties between reprints that share artwork.
 
 ```mermaid
 flowchart TD
@@ -54,55 +99,34 @@ flowchart TD
     ONNX -.->|"drop in + reindex —<br/>new sets still need no training"| IDX
 ```
 
-Reading the diagram in one breath: **top-left** happens once (and per new set) — download, fingerprint, store. **Middle** happens per photo — find the card, flatten it, fingerprint it four different ways, merge the votes, and only claim a match when the evidence is strong; the OCR'd collector number is what separates two printings of the same artwork. **Bottom** happened once on a GPU: the encoder was taught that a glared, tilted, blurry photo of a card is *the same card* as its clean render — it learned to ignore cameras, not to memorize cards, which is why it never needs retraining.
+The encoder was fine-tuned once, on synthetic photo distortions (glare, perspective, blur, fingers), to learn that a bad photo of a card *is* that card — it learned to ignore cameras, not to memorize cards, which is why new sets never need training. Runtime inference is ONNX on CPU; PyTorch is never a server dependency.
 
-Webcam mode adds one wrapper: results are aggregated over a sliding window of frames and a card is only announced once it wins several frames in a row — one stable answer per card shown, instead of a flickering guess per frame.
+Deeper docs live in [`openwiki/quickstart.md`](openwiki/quickstart.md) — the recognition pipeline, reference data, service/CLI surface, and the optional training harness.
 
-## The Claude Code stack
+## Deployment
 
-The `.claude/` directory turns a session into a guarded feedback loop. Everything below is repo-contained — clone + Claude Code is the whole install.
+[`deploy/`](deploy/README.md) contains a production runbook: a systemd unit for the service, a Cloudflare Tunnel example for HTTPS, and the minimal set of data artifacts a server needs (~250 MB — the reference DB, embedding index, ONNX model, and set symbols; card images are served from the TCGdex CDN).
 
-```mermaid
-flowchart TD
-    START(["Session starts"]) --> BRIEF["SessionStart hook<br/>injects repo brief: branch, dirty files, wiki freshness"]
-    BRIEF --> WORK{{"You prompt / Claude works"}}
+## Development
 
-    WORK -- "prompt names a file" --> ROUTE1["wiki_router<br/>injects which wiki page covers it"]
-    WORK -- "Claude reads/edits a file" --> ROUTE2["edit_router<br/>same routing, once per file per session"]
-    WORK -- "Claude writes Python" --> FMT["ruff_format<br/>auto lint+format on write"]
-    WORK -- "a command fails" --> RB["runbook_matcher<br/>injects the known fix from openwiki/troubleshooting.md"]
-    WORK -- "turn ends" --> SWEEP["ruff_check_all<br/>Ruff + mypy-daemon sweep, only when code changed, capped output"]
-
-    WORK -- "git commit" --> GUARD{"guard_commit"}
-    GUARD -- "--no-verify" --> BLOCK1["blocked — gate is not optional"]
-    GUARD -- "wiki stale for these changes" --> BLOCK2["blocked — update wiki or stage it along<br/>(escape: OPENWIKI_SKIP=1 + reason)"]
-    GUARD -- "code change, no semver bump" --> BLOCK3["blocked — bump pyproject version<br/>(escape: VERSION_OK=1)"]
-    GUARD -- "all clear" --> COMMIT(["commit lands"])
-
-    subgraph knowledge["Self-maintaining docs (OpenWiki)"]
-        WIKI["openwiki/ — pages bound to source globs with verified git heads"]
-        AUTO["/openwiki autopilot — init · update stale pages · prune"]
-    end
-    ROUTE1 -.reads.-> WIKI
-    ROUTE2 -.reads.-> WIKI
-    COMMIT -.source changes stale pages.-> AUTO -.rewrites & re-verifies.-> WIKI
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+pre-commit install
+cd frontend && npm ci && npm run dev   # Vite dev server proxying /api to :8000
 ```
 
-The pieces, in one table:
+The quality gate (`ruff check`, `ruff format --check`, `mypy`, `bandit`, `pytest`) runs via pre-commit and CI; the test suite is fully offline. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-| Piece | Where | What it does |
-|---|---|---|
-| **Rules** | `.claude/rules/` | Always-on conventions: workflow discipline, settings/constants, code style, test style |
-| **Skills** | `.claude/skills/` | `/openwiki` (docs autopilot), `/verify` (full gate + auto-fix), `/ship` (commit→push→PR the team way, guard-aware), `/new-setting` (config checklist), `/runbook-add` (teach the error-matcher a new fix), `/tune` (audit recent sessions for friction, propose allowlist/rules/runbook fixes) |
-| **Hooks** | `.claude/hooks/` | The seven automations in the diagram — briefs, routing, formatting, runbook hints, cached sweeps, commit guards, secret-file protection |
-| **OpenWiki** | `openwiki/` | Agent-oriented docs where every page declares the source files it covers; staleness is *computed*, and commits are gated on it |
-| **Permissions** | `.claude/settings.json` | Pre-approved gate/git/toolkit commands (no prompt fatigue); reads of `.env` denied |
-| **Headroom** (optional) | `scripts/claude-headroom.*` | Start a session behind a context-compression proxy for token-heavy work |
+This repo also ships a self-enforcing agent workflow (Claude Code and Codex): rules, skills, hooks that gate commits on doc freshness and semver, and agent-oriented docs in `openwiki/`. If you work with coding agents it's a working reference setup — see [`openwiki/workflow.md`](openwiki/workflow.md); if you don't, it stays out of your way.
 
-### Day-one workflow
+## Credits & legal
 
-1. Run `claude` in the repo and just work — conventions are enforced, not memorized.
-2. Trust the injections: the session brief, wiki routing, and runbook hints exist so neither you nor the agent rediscovers known things.
-3. When a commit gets blocked, the message says exactly why and how to proceed — the escapes (`OPENWIKI_SKIP=1`, `VERSION_OK=1`) are deliberate, explained exceptions, not workarounds.
-4. Ship with `/ship`: Conventional Commits, semver bump, `dev` as trunk (there is no `main`), PRs into `dev`.
-5. Docs stay honest by construction: change code → the covering wiki page goes stale → `/openwiki` fixes it → the commit guard keeps everyone honest in between.
+- **[TCGdex](https://tcgdex.dev)** — the free, keyless card catalogue and image CDN this project is built on.
+- **[DINOv2](https://github.com/facebookresearch/dinov2)** (Meta AI) — the image encoder backbone.
+- **[RapidOCR](https://github.com/RapidAI/RapidOCR)** — collector-number OCR.
+
+pokeum is a fan-made tool, not affiliated with, endorsed, or sponsored by Nintendo, Creatures Inc., GAME FREAK inc., or The Pokémon Company International. Pokémon and Pokémon character names are trademarks of Nintendo. Card images remain © their respective rights holders and are served from TCGdex.
+
+## License
+
+[MIT](LICENSE)

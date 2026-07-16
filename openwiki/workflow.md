@@ -1,8 +1,8 @@
 ---
 title: Development workflow
-sources: ["app/core/config.py", "app/core/logging_config.py", "tests/**", ".env.example", ".claude/rules/**", ".claude/hooks/**", ".claude/settings.json", ".codex/**", ".agents/**", "AGENTS.md", ".pre-commit-config.yaml", "pyproject.toml", "requirements.txt", "requirements-dev.txt", "scripts/fresh-start.sh", "scripts/fresh-start.ps1", "scripts/claude-headroom.sh", "scripts/claude-headroom.ps1"]
+sources: ["app/core/config.py", "app/core/logging_config.py", "tests/**", ".env.example", ".claude/rules/**", ".claude/hooks/**", ".claude/skills/**", ".claude/settings.json", ".codex/**", ".agents/**", "AGENTS.md", ".github/**", ".pre-commit-config.yaml", "pyproject.toml", "requirements.txt", "requirements-dev.txt", "scripts/fresh-start.sh", "scripts/fresh-start.ps1", "scripts/claude-headroom.sh", "scripts/claude-headroom.ps1"]
 read-when: "changing settings/logging, tests, dependencies, quality-gate config, CI, hooks/automation, coding conventions, or the fresh-start/detach script"
-verified: 73fa017a9afa
+verified: f44cf4f0469f
 ---
 
 # Development workflow
@@ -77,9 +77,9 @@ target: cover logic where mistakes hurt, skip trivial pass-throughs.
 
 ## The quality gate
 
-The same six checks run locally via pre-commit or the `/verify` skill (the
-Bitbucket CI pipeline that used to mirror them was removed with the move to
-GitHub hosting; re-add a CI workflow running this exact list when CI returns):
+The same six checks run locally via pre-commit or the `/verify` skill, and in
+CI (`.github/workflows/ci.yml` runs this exact list on pushes to `main`/`dev`
+and on PRs, plus a frontend job running `npm ci && npm run build`):
 
 ```
 python -m ruff check .
@@ -106,10 +106,10 @@ it when touching `frontend/`. See [service-and-cli](service-and-cli.md).
   (`ruff check --fix`, `ruff format`), and reports one pass/fail summary.
 - **`/ship` skill**: the commit → push → PR flow. Conventional Commit messages
   via heredoc, a semver bump in `pyproject.toml` per shippable change (`feat`
-  → minor, `fix`/other → patch, `BREAKING CHANGE` → major), and Dutch-language
-  PR bodies with a fixed section structure. `dev` is the trunk — there is no
-  `main`; solo projects may commit/push directly to `dev`, team projects use
-  `<type>/<short-slug>` branches into `dev`.
+  → minor, `fix`/other → patch, `BREAKING CHANGE` → major). `dev` is the
+  working trunk; `main` is the published default branch on GitHub that `dev`
+  merges into per release. External PRs target `main`; day-to-day solo work
+  commits directly to `dev`.
 
 ## Agent automation (`.claude/`)
 

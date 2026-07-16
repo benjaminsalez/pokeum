@@ -20,8 +20,8 @@ Scope from `$ARGUMENTS`: `commit` stops after committing, `push` after pushing, 
 
 ## 1. Branch
 
-- **Solo project**: committing and pushing to `dev` (the trunk — there is no `main`) is allowed.
-- **Team project**: work on a branch named `<type>/<short-slug>` (`feat/csv-export`, `fix/parse-edge-case`); the PR targets `dev`. Ask which mode applies if it is not evident from the repo (branch protection, existing PRs).
+- **Solo project**: committing and pushing to `dev` (the working trunk) is allowed; `main` is the published default branch that `dev` merges into per release.
+- **Team project**: work on a branch named `<type>/<short-slug>` (`feat/csv-export`, `fix/parse-edge-case`); the PR targets `main`. Ask which mode applies if it is not evident from the repo (branch protection, existing PRs).
 
 ## 2. Commit — Conventional Commits, via heredoc
 
@@ -60,23 +60,8 @@ Include the bump in the (last) commit; don't make a separate "bump version" comm
 ## 5. Pull request
 
 - **Title**: same shape as a commit summary — `feat(core): add retry helper`.
-- **Body in Dutch** (team communication), written via heredoc, with exactly these sections:
-
-```markdown
-## Wat & waarom
-
-<wat verandert er en welk probleem lost het op>
-
-## Hoe getest
-
-<verify-uitkomst, nieuwe/aangepaste tests, handmatige checks>
-
-## Aandachtspunten voor review
-
-<keuzes waarover twijfel kan bestaan, semver-bump, vervolgstappen>
-```
-
-- Remote is **Bitbucket** (the team default): there is no CLI — push prints a `Create pull request` URL; surface that link plus the prepared title and body for the user to paste. Remote is GitHub: create it directly with `gh pr create` (heredoc body).
+- **Body in English** (public repository), written via heredoc, following `.github/PULL_REQUEST_TEMPLATE.md`: *What & why*, *How tested*, and the gate checklist.
+- Remote is **GitHub**: create the PR directly with `gh pr create` (heredoc body).
 
 ## 6. Report
 
