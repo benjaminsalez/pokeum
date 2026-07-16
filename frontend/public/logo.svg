@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- App icon source: pokeball mark on the app's dark theme background.
+       Regenerate the PNG icon set with: npm run generate-pwa-assets -->
+  <rect width="512" height="512" rx="112" fill="#09090b"/>
+  <g>
+    <!-- top half (red) -->
+    <path d="M256 96a160 160 0 0 1 159.2 144H96.8A160 160 0 0 1 256 96z" fill="#ef4444"/>
+    <!-- bottom half (white) -->
+    <path d="M415.2 272a160 160 0 0 1-318.4 0z" fill="#fafafa"/>
+    <!-- band -->
+    <rect x="93" y="240" width="326" height="32" fill="#18181b"/>
+    <!-- outer ring -->
+    <circle cx="256" cy="256" r="160" fill="none" stroke="#18181b" stroke-width="18"/>
+    <!-- center button -->
+    <circle cx="256" cy="256" r="52" fill="#18181b"/>
+    <circle cx="256" cy="256" r="38" fill="#fafafa"/>
+    <circle cx="256" cy="256" r="20" fill="#ffffff" stroke="#a1a1aa" stroke-width="4"/>
+    <!-- highlight -->
+    <ellipse cx="196" cy="150" rx="34" ry="16" transform="rotate(-24 196 150)" fill="#ffffff" opacity="0.35"/>
+  </g>
+</svg>

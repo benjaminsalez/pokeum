@@ -6,9 +6,10 @@ import {
   Download,
   ImagePlus,
   RefreshCw,
+  Trash2,
   X,
 } from "lucide-vue-next";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import DataNotice from "@/components/DataNotice.vue";
 import PokeballButton from "@/components/scanner/PokeballButton.vue";
@@ -22,6 +23,12 @@ import {
   submitScan,
   type IdentifyResponse,
 } from "@/lib/api";
+import {
+  clearCollection,
+  loadCollection,
+  requestPersistentStorage,
+  saveCollection,
+} from "@/lib/collection";
 import { downloadFile, toTcgplayerCsv, type ScanEntry } from "@/lib/exporters";
 import { downscaleForUpload, guideCropSourceRect } from "@/lib/image";
 import { hasSeenNotice, markNoticeSeen } from "@/lib/notice";
@@ -43,6 +50,8 @@ const showNotice = ref(!hasSeenNotice());
 
 let stream: MediaStream | null = null;
 let flashTimer: number | undefined;
+let saveTimer: number | undefined;
+let persistenceRequested = false;
 
 const totalCards = computed(() => entries.value.reduce((sum, entry) => sum + entry.quantity, 0));
 const collectionCards = computed(() =>
@@ -57,13 +66,46 @@ const pendingMatch = computed(() => pending.value?.match ?? null);
 const isCameraReady = computed(() => cameraState.value === "ready");
 
 onMounted(() => {
+  entries.value = loadCollection();
+  document.addEventListener("visibilitychange", flushCollectionSave);
   void startCamera();
 });
 
 onBeforeUnmount(() => {
   stopCamera();
   window.clearTimeout(flashTimer);
+  document.removeEventListener("visibilitychange", flushCollectionSave);
+  flushCollectionSave();
 });
+
+// Debounced persistence: accepting a scan mutates entries several times in a
+// burst (quantity bumps, unshift), one write 400 ms later covers them all.
+watch(
+  entries,
+  () => {
+    window.clearTimeout(saveTimer);
+    saveTimer = window.setTimeout(persistCollection, 400);
+    if (!persistenceRequested && entries.value.length > 0) {
+      persistenceRequested = true;
+      void requestPersistentStorage();
+    }
+  },
+  { deep: true },
+);
+
+function persistCollection(): void {
+  window.clearTimeout(saveTimer);
+  saveTimer = undefined;
+  saveCollection(entries.value);
+}
+
+// Mobile PWAs are killed without unload events; the hidden transition is the
+// last reliable moment to flush a pending debounced write.
+function flushCollectionSave(): void {
+  if (document.visibilityState === "hidden" || saveTimer !== undefined) {
+    persistCollection();
+  }
+}
 
 function haptic(pattern: number | number[]): void {
   navigator.vibrate?.(pattern);
@@ -268,6 +310,13 @@ function reject(): void {
 function exportCsv(): void {
   const stamp = new Date().toISOString().slice(0, 10);
   downloadFile(`pokeum-collection-${stamp}.csv`, toTcgplayerCsv(entries.value));
+  haptic(12);
+}
+
+function clearAll(): void {
+  if (!window.confirm("Clear the whole collection? This cannot be undone.")) return;
+  entries.value = [];
+  clearCollection();
   haptic(12);
 }
 
@@ -508,15 +557,27 @@ function exportCsv(): void {
     <div
       class="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-3 right-3 z-20 rounded-lg border bg-background/95 p-3 shadow-lg backdrop-blur"
     >
-      <Button
-        size="lg"
-        class="mx-auto min-h-12 w-full max-w-md rounded-md"
-        :disabled="!entries.length"
-        @click="exportCsv"
-      >
-        <Download />
-        Export CSV
-      </Button>
+      <div class="mx-auto flex w-full max-w-md gap-2">
+        <Button
+          size="lg"
+          class="min-h-12 flex-1 rounded-md"
+          :disabled="!entries.length"
+          @click="exportCsv"
+        >
+          <Download />
+          Export CSV
+        </Button>
+        <Button
+          variant="outline"
+          size="lg"
+          class="min-h-12 rounded-md"
+          :disabled="!entries.length"
+          aria-label="Clear collection"
+          @click="clearAll"
+        >
+          <Trash2 />
+        </Button>
+      </div>
     </div>
   </div>
 

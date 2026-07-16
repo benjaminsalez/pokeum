@@ -2,7 +2,7 @@
 title: Service, CLI, frontend & webcam
 sources: ["app/cli.py", "app/api/**", "app/collect/**", "main.py", "app/recognize/factory.py", "app/recognize/webcam.py", "app/recognize/eval.py", "frontend/**", "scripts/make_synthetic_eval.py"]
 read-when: "changing the CLI commands, the FastAPI endpoints, the Vue scan frontend, webcam scanning, the recognizer factory/wiring, or the eval harness"
-verified: 12d13ba10923
+verified: 21039bdbbe8e
 ---
 
 # Service, CLI, frontend & webcam
@@ -118,6 +118,25 @@ of the collection with a TCGplayer-style CSV download —
 No confidence values are shown anywhere by design. Card art renders via
 `cardArtUrl` ([`api.ts`](../frontend/src/lib/api.ts)): the candidate's TCGdex
 CDN `image_url` when known, else the API image endpoint.
+
+**Installable PWA:** `vite-plugin-pwa` (config in
+[`vite.config.ts`](../frontend/vite.config.ts)) generates the manifest and a
+Workbox service worker; `main.ts` registers it (`autoUpdate` — new deploys
+activate on next launch). The app shell is precached; card art is runtime
+`CacheFirst` (the TCGdex CDN plus the API thumbnail fallback, capped at
+1500/500 entries), `/api/*` is never answered by the navigation fallback, and
+POSTs are never cached. Icons in `frontend/public/` are generated from
+`logo.svg` via `npm run generate-pwa-assets`. Installing requires HTTPS (as
+does the camera).
+
+**The collection persists on-device**: `entries` round-trips through
+versioned-JSON localStorage ([`collection.ts`](../frontend/src/lib/collection.ts)
+— same swallow-storage-errors pattern as `notice.ts`), loaded on mount, saved
+by a 400 ms-debounced deep watch and flushed on `visibilitychange: hidden`
+(mobile PWAs die without unload events). The first non-empty save requests
+`navigator.storage.persist()` against eviction. The export view has a
+confirm-guarded clear-all button. Because persisted cards carry `image_url`,
+a restored collection renders art from the service-worker cache even offline.
 
 Camera captures are **cropped to the guide frame** before upload: `captureFrame`
 maps the ScannerFrame's on-screen rect through the video's `object-cover`
