@@ -2,7 +2,7 @@
 title: Service, CLI, frontend & webcam
 sources: ["app/cli.py", "app/api/**", "app/collect/**", "main.py", "app/recognize/factory.py", "app/recognize/webcam.py", "app/recognize/eval.py", "frontend/**", "scripts/make_synthetic_eval.py"]
 read-when: "changing the CLI commands, the FastAPI endpoints, the Vue scan frontend, webcam scanning, the recognizer factory/wiring, or the eval harness"
-verified: 73fa017a9afa
+verified: 45e71e68a303
 ---
 
 # Service, CLI, frontend & webcam
@@ -93,13 +93,21 @@ load from another origin (dev server, tunnel). Start it with
 
 `ScanCollector` ([`s3.py`](../app/collect/s3.py)) uploads each accepted scan —
 the captured photo plus a sibling annotation JSON — to S3 under
-`{prefix}/YYYY/MM/DD/{uuid}.{jpg,json}`, for future encoder fine-tunes. It is
+`{prefix}/YYYY/MM/DD/{uuid}.{webp,json}`, for future encoder fine-tunes. It is
 strictly best-effort: it runs as a FastAPI background task after the response,
 never raises (failures are logged and swallowed, no retries), and **no-ops
 entirely while `SCANS_S3_BUCKET` is empty** — the default, so the app runs
-identically without any AWS setup. Configuration: `SCANS_S3_BUCKET`,
-`SCANS_S3_REGION`, `SCANS_S3_PREFIX`, `SCANS_S3_ENDPOINT_URL` (S3-compatible
-stores), with credentials via boto3's standard chain (see `.env.example`).
+identically without any AWS setup. Two server-side guarantees on what lands in
+the bucket: every image is **normalized before upload** (long side capped to
+`SCAN_STORE_MAX_SIDE` = 512 px — enough that the card region still exceeds the
+352 px training cache height with the guide margin included — re-encoded as
+lossy webp, so stored scans are training-ready pairs of image + `card_id`
+label), and **uploads pause while total bucket usage is at or above
+`SCANS_MAX_BUCKET_BYTES` (100 GB)** — usage is summed from an object listing
+cached for an hour and grown by our own uploads in between. Configuration:
+`SCANS_S3_BUCKET`, `SCANS_S3_REGION` (use `auto` for Cloudflare R2),
+`SCANS_S3_PREFIX`, `SCANS_S3_ENDPOINT_URL` (S3-compatible stores), with
+credentials via boto3's standard chain (see `.env.example`).
 boto3 is imported lazily on the first enabled upload. The lifespan wires one
 collector onto `app.state.collector`; tests inject a fake. The annotation
 carries `SCAN_ANNOTATION_SCHEMA_VERSION` so training tooling can evolve the

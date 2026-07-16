@@ -143,6 +143,22 @@ TCGDEX_IMAGE_EXTENSION = "webp"
 CARD_THUMB_WIDTH = 320
 
 # --- Scan collection ----------------------------------------------------------
+# Stored scans are normalized server-side before upload: the long side is capped
+# so the card region (guide-cropped scans keep ~15% background margin) still
+# exceeds the training cache height (352 px — training/config.py CACHE_HEIGHT),
+# then re-encoded as lossy webp like the reference images. Anything larger adds
+# no training signal, only storage cost.
+SCAN_STORE_MAX_SIDE = 512
+SCAN_STORE_WEBP_QUALITY = 80
+# Hard cap on total bucket usage: uploads stop while usage is at or above this,
+# per collection's silent best-effort contract. ~2.5M scans at ~40 KB each.
+SCANS_MAX_BUCKET_BYTES = 100 * 1024**3
+# Usage is measured by summing a full object listing; cache the result this
+# long so the sweep runs at most once an hour, not per upload. Uploaded bytes
+# are added to the cached figure in between, so bursts still count against it.
+SCANS_USAGE_CACHE_TTL_SECONDS = 3600.0
+
+# --- Scan collection ----------------------------------------------------------
 # Version stamped into every uploaded scan annotation so downstream training
 # tooling can evolve the JSON shape without guessing at old objects.
 SCAN_ANNOTATION_SCHEMA_VERSION = 1
