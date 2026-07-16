@@ -16,13 +16,14 @@ function csvEscape(value: string): string {
 }
 
 /**
- * TCGplayer-style collection CSV. The column set (Quantity, Name, Set,
- * Card Number, Condition, Language, Printing) is the de-facto interchange
- * format most collection trackers (TCGplayer app, Collectr, Dragon Shield
- * imports) can map directly.
+ * TCGplayer-style collection CSV (Quantity, Name, Set, Card Number, Language,
+ * Printing) — the de-facto interchange format most collection trackers
+ * (TCGplayer app, Collectr, Dragon Shield imports) can map directly.
+ * Deliberately no Condition column: a scanner cannot judge condition, and a
+ * made-up "Near Mint" would be worse than letting the importer ask.
  */
 export function toTcgplayerCsv(entries: ScanEntry[]): string {
-  const header = ["Quantity", "Name", "Set", "Card Number", "Condition", "Language", "Printing"];
+  const header = ["Quantity", "Name", "Set", "Card Number", "Language", "Printing"];
   const lines = [header.join(",")];
   for (const entry of entries) {
     const printing = entry.card.variants?.some((v) => v.kind === "reverse_holo" && v.present)
@@ -34,7 +35,6 @@ export function toTcgplayerCsv(entries: ScanEntry[]): string {
         csvEscape(entry.card.name),
         csvEscape(entry.card.set.name),
         csvEscape(entry.card.number),
-        "Near Mint",
         "English",
         printing,
       ].join(","),

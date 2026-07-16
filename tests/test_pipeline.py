@@ -6,8 +6,10 @@ it with the pure-NumPy embedder, and checks the recognizer picks the right card.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 from app.models import RecognitionStatus
@@ -29,7 +31,7 @@ def _build(tmp_path: Path) -> Recognizer:
         release_date="2020-01-01",
         card_count_total=3,
         card_count_official=3,
-        set_code="ST1",
+        set_code="STO",  # letters-only: parse_set_code only reads [A-Z]{2,4} tokens
         symbol_url=None,
         synced_at="now",
     )
@@ -70,6 +72,63 @@ def test_recognizes_indexed_card(tmp_path: Path) -> None:
     assert result.status in (RecognitionStatus.CONFIDENT, RecognitionStatus.UNCERTAIN)
     assert result.match is not None
     assert result.match.card.card_id == "s1-2"
+
+
+class _FakeOcr:
+    """OCR fake returning nothing useful, to exercise the concurrent path."""
+
+    def read_text(self, image: np.ndarray) -> list[tuple[str, float]]:
+        return [("2/3", 0.9)]
+
+
+def test_executor_path_matches_serial_result(tmp_path: Path) -> None:
+    serial = _build(tmp_path)
+    serial._ocr = _FakeOcr()  # noqa: SLF001 - white-box: same store, add OCR
+    baseline = serial.identify(load_image(tmp_path / "s1-2.png"))
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        concurrent = Recognizer(
+            serial.store,
+            hash_index=serial._hash_index,  # noqa: SLF001
+            embedder=serial._embedder,  # noqa: SLF001
+            emb_full_index=serial._emb_full,  # noqa: SLF001
+            emb_art_index=serial._emb_art,  # noqa: SLF001
+            ocr_engine=_FakeOcr(),
+            executor=executor,
+        )
+        result = concurrent.identify(load_image(tmp_path / "s1-2.png"))
+
+    assert result.status == baseline.status
+    assert result.match is not None and baseline.match is not None
+    assert result.match.card.card_id == baseline.match.card.card_id
+
+
+class _SetCodeOcr:
+    """OCR fake reading a fixed uppercase token (a set-code candidate)."""
+
+    def __init__(self, token: str) -> None:
+        self.token = token
+
+    def read_text(self, image: np.ndarray) -> list[tuple[str, float]]:
+        return [(self.token, 0.9)]
+
+
+def test_unknown_ocr_set_code_is_ignored(tmp_path: Path) -> None:
+    recognizer = _build(tmp_path)
+    recognizer._ocr = _SetCodeOcr("ZZZZ")  # noqa: SLF001 - not a catalogue code
+    result = recognizer.identify(load_image(tmp_path / "s1-2.png"))
+    # The bogus code is stripped; with no number either, the observation is
+    # not useful and must not appear in the result (nor poison fusion).
+    assert result.ocr is None
+    assert result.match is not None and result.match.card.card_id == "s1-2"
+
+
+def test_catalogue_ocr_set_code_survives(tmp_path: Path) -> None:
+    recognizer = _build(tmp_path)
+    recognizer._ocr = _SetCodeOcr("STO")  # noqa: SLF001 - the synthetic set's code
+    result = recognizer.identify(load_image(tmp_path / "s1-2.png"))
+    assert result.ocr is not None
+    assert result.ocr.set_code == "STO"
 
 
 def test_no_card_detected_when_required(tmp_path: Path) -> None:

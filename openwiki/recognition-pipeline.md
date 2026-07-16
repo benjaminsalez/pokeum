@@ -2,7 +2,7 @@
 title: Recognition pipeline
 sources: ["app/models.py", "app/vision/**", "app/signals/**", "app/variants/**", "app/recognize/pipeline.py", "app/recognize/fusion.py", "app/recognize/temporal.py", "app/core/constants.py"]
 read-when: "changing detection/rectification, any recognition signal (hash, embedding, OCR, symbol), the fusion/confidence maths, variant detection, or webcam aggregation"
-verified: b9a6e044d582
+verified: a9b48fc5656f
 ---
 
 # Recognition pipeline
@@ -23,9 +23,21 @@ behaviour there, not with scattered literals.
 ## Detection and rectification (`app/vision/`)
 
 - [`detect.py`](../app/vision/detect.py) finds the card's quadrilateral with a
-  classic OpenCV approach (bilateral blur → Canny → contours → largest convex
-  4-gon with a plausible card size and aspect). No trained model, so new sets
-  cost nothing here.
+  classic OpenCV approach (bilateral blur → auto-Canny → contours → largest
+  convex 4-gon with a plausible card size and aspect). No trained model, so new
+  sets cost nothing here. Detection runs on a copy capped to `DETECT_MAX_SIDE`
+  (edges need contrast, not resolution) and the quad is scaled back to source
+  coordinates, so rectification still samples the original pixels. Canny
+  thresholds are median-adaptive (`CANNY_MEDIAN_LO/HI` × the blurred image's
+  median) — fixed literals missed card edges entirely in dim scenes. When a raw
+  contour isn't a clean convex 4-gon (rounded corners, glare nicks, fingers),
+  its convex hull is re-approximated at progressively looser tolerances
+  (`_HULL_EPSILONS`) before giving up. Frames that still fail detection can be
+  dumped for inspection via `SCAN_DEBUG_DIR` (see `.env.example`).
+- Ingest is capped too: API uploads and CLI images pass through
+  `imaging.cap_long_side(..., INGEST_MAX_SIDE)` before recognition — a 12MP
+  photo adds nothing for a 630×880 rectification but multiplies every filter's
+  cost.
 - [`geometry.py`](../app/vision/geometry.py) is **pure NumPy** (corner ordering,
   area, aspect, plausibility) and carries the unit-tested maths.
 - [`rectify.py`](../app/vision/rectify.py) perspective-warps the quad to a
@@ -54,16 +66,40 @@ and `OcrEngine` Protocols so pure-logic code and tests never load a model.
   retrieval over an L2-normalized matrix (`EmbeddingIndex`), one matmul, no ANN
   library. Two encoders share the `Embedder` interface: `OnnxEmbedder` (an
   exported DINOv2-small, robust) and `HistogramEmbedder` (pure-NumPy fallback,
-  always available). Full-card and artwork-crop embeddings are separate signals.
+  always available). Full-card and artwork-crop embeddings are separate signals,
+  but run as **one batched forward pass**: `embed_images()` prefers an
+  encoder's duck-typed `embed_batch` (the exported ONNX graph has a dynamic
+  batch axis, probed at load) and falls back to looping `embed()`.
 - **OCR** ([`ocr.py`](../app/signals/ocr.py)) — reads the bottom strip and
   parses the collector number and set code. `parse_collector_number`,
   `parse_set_code`, and `interpret_lines` are **pure and heavily tested**;
   `RapidOcrEngine` wraps the model. OCR is never a hard gate (glare defeats it) —
-  it only nudges fusion.
+  it only nudges fusion. A parsed set code is only trusted if the catalogue
+  actually prints it (`Recognizer._validate_set_code` against
+  `store.known_set_codes()`): random uppercase scene text used to both skip the
+  symbol signal and penalize every candidate via `is_useful`.
 - **Symbol** ([`symbol.py`](../app/signals/symbol.py)) — zero-mean normalized
   cross-correlation of the card's symbol-zone crop against per-set symbol
   templates, giving a per-set score the pipeline broadcasts to that set's
   candidates. Only consulted when OCR found no set code (the WOTC-era path).
+
+## Latency inside `Recognizer.identify`
+
+- With an injected `executor` (the factory passes a 2-worker
+  `ThreadPoolExecutor`; tests default to `None` = serial), **OCR runs
+  concurrently with the dense signals** — ONNX Runtime and NumPy release the
+  GIL, so the scan's wall time is roughly `max(dense, OCR)` instead of their
+  sum. `RapidOcrEngine` serializes access to its shared reader with a lock.
+- Candidate resolution is one chunked `store.get_cards(ids)` `IN` query, not a
+  round-trip per shortlist id.
+- Every `identify` emits a per-stage DEBUG timing line
+  (`identify timings ms: ...`) — run with `LOG_LEVEL=debug` to attribute a slow
+  scan before changing anything.
+- `LOG_LEVEL=debug` also emits full recognition diagnostics per scan: detection
+  outcome, each signal's top-5 candidates with scores, the raw OCR lines and
+  the parsed number/set (plus how many catalogue cards agree), symbol-template
+  scores on the WOTC path, and the fused top-5 with per-signal contributions —
+  enough to see which signal pulled in a wrong pick.
 
 ## Fusion (`app/recognize/fusion.py`)
 

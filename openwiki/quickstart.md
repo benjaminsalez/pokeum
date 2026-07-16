@@ -1,6 +1,6 @@
 ---
 title: OpenWiki quickstart
-verified: b9a6e044d582
+verified: a9b48fc5656f
 ---
 
 # pokeum — Pokémon card recognizer
@@ -76,7 +76,7 @@ variants) ← recognize ← (cli, api)`. `app/core/` never imports from the rest
 
 ```
 # 1. install runtime deps (numpy, opencv, imagehash, onnxruntime, rapidocr,
-#    httpx, fastapi, uvicorn — all pinned)
+#    httpx, fastapi, uvicorn, boto3 — all pinned)
 python -m pip install -r requirements.txt
 
 # 2. populate the local catalogue + image cache from TCGdex
@@ -91,7 +91,7 @@ python main.py identify path/to/card.jpg --json     # machine-readable
 
 # live webcam, or serve the HTTP API
 python main.py scan
-python main.py serve       # POST /identify, GET /health, GET /cards/{id}
+python main.py serve       # POST /identify, POST /scans, GET /health, GET /cards/{id}
 
 # browser scan UI (Vue): start the API first, then
 cd frontend && npm install && npm run dev    # http://localhost:5173
@@ -101,6 +101,7 @@ Reference data lives under `DATA_DIR` (default `./data`, gitignored):
 `reference.db` (SQLite), `images/`, `index/*.npy`, `symbols/`, `models/`.
 Configuration is read only through [`app/core/config.py`](../app/core/config.py)
 accessors; see [`.env.example`](../.env.example) for every key and default.
+`python main.py ...` loads a local `.env` automatically (shell variables win).
 
 ## The encoder
 

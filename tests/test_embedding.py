@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from app.models import SignalScore
-from app.signals.embedding import EmbeddingIndex, HistogramEmbedder, l2_normalize
+from app.signals.embedding import EmbeddingIndex, HistogramEmbedder, embed_images, l2_normalize
 
 
 def _solid(color: tuple[int, int, int]) -> np.ndarray:
@@ -50,3 +50,38 @@ def test_embedding_index_retrieves_nearest() -> None:
 def test_embedding_index_empty() -> None:
     index = EmbeddingIndex([], np.zeros((0, 0), dtype=np.float32))
     assert index.query(np.zeros(4, dtype=np.float32)) == []
+
+
+class _BatchEmbedder:
+    """Fake exposing embed_batch, to prove embed_images prefers it."""
+
+    identifier = "batch-fake"
+    dim = 4
+
+    def __init__(self) -> None:
+        self.batch_calls = 0
+
+    def embed(self, image: np.ndarray) -> np.ndarray:
+        raise AssertionError("embed() must not be called when embed_batch exists")
+
+    def embed_batch(self, images: list[np.ndarray]) -> list[np.ndarray]:
+        self.batch_calls += 1
+        return [np.full(4, float(len(images)), dtype=np.float32) for _ in images]
+
+
+def test_embed_images_uses_embed_batch_when_available() -> None:
+    embedder = _BatchEmbedder()
+    vectors = embed_images(embedder, [_solid((10, 10, 10)), _solid((20, 20, 20))])
+    assert embedder.batch_calls == 1
+    assert len(vectors) == 2
+
+
+def test_embed_images_falls_back_to_looping_embed() -> None:
+    # HistogramEmbedder has no embed_batch: the helper loops embed() and the
+    # result must match calling embed() directly.
+    embedder = HistogramEmbedder()
+    images = [_solid((200, 20, 20)), _solid((20, 20, 200))]
+    vectors = embed_images(embedder, images)
+    assert len(vectors) == 2
+    assert np.allclose(vectors[0], embedder.embed(images[0]))
+    assert np.allclose(vectors[1], embedder.embed(images[1]))

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 
 import numpy as np
 
@@ -113,10 +114,14 @@ class RapidOcrEngine:
         from rapidocr_onnxruntime import RapidOCR
 
         self._reader = RapidOCR()
+        # The service handles requests in a thread pool; RapidOCR's reader is
+        # not documented as thread-safe, so serialize access to the shared one.
+        self._lock = threading.Lock()
 
     def read_text(self, image: np.ndarray) -> list[tuple[str, float]]:
         """Return ``(text, confidence)`` pairs found in an RGB image region."""
-        result, _ = self._reader(np.asarray(image))
+        with self._lock:
+            result, _ = self._reader(np.asarray(image))
         if not result:
             return []
         return [(str(item[1]), float(item[2])) for item in result]
@@ -134,4 +139,5 @@ def read_card(engine: OcrEngine, card: np.ndarray) -> OcrObservation:
     """
     strip = regions.bottom_strip(card)
     lines = engine.read_text(strip)
+    logger.debug("ocr raw lines: %s", [(text, round(conf, 2)) for text, conf in lines])
     return interpret_lines(lines)

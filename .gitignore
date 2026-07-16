@@ -24,6 +24,7 @@ CLAUDE.local.md
 # Frontend build artifacts
 frontend/node_modules/
 frontend/dist/
+frontend/*.tsbuildinfo
 
 # IDE / OS
 .vscode/
@@ -35,5 +36,8 @@ Thumbs.db
 .claude/hooks/.check_cache
 .claude/hooks/.state/
 .claude/scratch/
+# Codex hook state (mirrors the Claude rules above)
+.codex/hooks/.check_cache
+.codex/hooks/.state/
 .dmypy.json
 dmypy.json

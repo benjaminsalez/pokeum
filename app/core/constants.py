@@ -58,6 +58,25 @@ ART_FRAME_RIGHT_BOX: FractionBox = (0.86, 0.14, 0.98, 0.52)
 # Lower-left of the artwork, a common promo-stamp position.
 PROMO_STAMP_BOX: FractionBox = (0.06, 0.44, 0.36, 0.58)
 
+# --- Ingest & detection performance ------------------------------------------
+# Uploads are capped to this long side before recognition: a 12MP phone photo
+# adds no signal for a 630x880 rectification but multiplies every filter and
+# warp's cost. 2000px keeps rectification ~3x oversampled even when the card
+# occupies only half the frame.
+INGEST_MAX_SIDE = 2000
+# Card detection runs on a copy capped to this long side; the found quad is
+# scaled back to source coordinates so rectification still samples the original.
+# bilateralFilter and Canny are O(pixels): 960px finds the same quads an order
+# of magnitude faster on photos and leaves webcam frames (1080p) barely touched.
+DETECT_MAX_SIDE = 960
+# Canny thresholds as fractions of the blurred image's median brightness
+# (classic auto-Canny). Fixed literals (50/150) miss card edges entirely in dim
+# scenes — real webcam sessions showed detection never firing; median-relative
+# thresholds track the scene's actual brightness. A flat image still yields no
+# edges (zero gradient), so blank frames keep returning "no card".
+CANNY_MEDIAN_LO = 0.66
+CANNY_MEDIAN_HI = 1.33
+
 # --- Perceptual hashing -----------------------------------------------------
 # Hash side length; the hash is HASH_SIZE**2 bits. 16 → 256-bit hashes, a good
 # balance between discrimination and tolerance to resampling.
@@ -122,6 +141,11 @@ TCGDEX_IMAGE_EXTENSION = "webp"
 # Width of the derived JPEG thumbnails the API serves to the scan UI; small
 # enough to load instantly, large enough to be sharp at confirmation-sheet size.
 CARD_THUMB_WIDTH = 320
+
+# --- Scan collection ----------------------------------------------------------
+# Version stamped into every uploaded scan annotation so downstream training
+# tooling can evolve the JSON shape without guessing at old objects.
+SCAN_ANNOTATION_SCHEMA_VERSION = 1
 
 # --- Card era ---------------------------------------------------------------
 # Cards released in or before this year are treated as WOTC-era for variant

@@ -30,6 +30,10 @@ _THIRD_PARTY_NOISE = (
     "httpcore",
     "urllib3",
     "asyncio",
+    # Multipart parsing logs one line per streamed chunk — hundreds per upload.
+    "python_multipart",
+    # PIL logs every image-plugin import at DEBUG on first use.
+    "PIL",
 )
 
 _INFO_FORMAT = "%(asctime)s %(levelname)-7s %(name)s | %(message)s"

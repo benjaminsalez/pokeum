@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from app.reference.store import ReferenceStore, normalize_number
 
 
@@ -119,6 +121,69 @@ def test_hashes_roundtrip_and_missing(tmp_path: Path) -> None:
     assert store.card_ids_missing_hashes() == []
     stored = dict(store.iter_hashes())
     assert stored["sv02-1"]["phash"] == "ff00"
+    store.close()
+
+
+def _insert_simple_card(store: ReferenceStore, card_id: str, number: str) -> None:
+    store.upsert_card(
+        card_id=card_id,
+        set_id="sv02",
+        name=card_id,
+        number=number,
+        number_total=193,
+        rarity=None,
+        release_year=2023,
+        image_url=None,
+        has_reverse=False,
+        has_first_edition=False,
+        has_holo=False,
+        has_normal=True,
+    )
+
+
+def test_get_cards_resolves_known_and_skips_unknown(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    _insert_simple_card(store, "sv02-1", "1")
+    _insert_simple_card(store, "sv02-2", "2")
+    resolved = store.get_cards(["sv02-1", "sv02-2", "nope", "sv02-1"])
+    assert set(resolved) == {"sv02-1", "sv02-2"}
+    assert resolved["sv02-2"].name == "sv02-2"
+    store.close()
+
+
+def test_get_cards_empty_input(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    assert store.get_cards([]) == {}
+    store.close()
+
+
+def test_get_cards_spans_chunks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.reference import store as store_module
+
+    monkeypatch.setattr(store_module, "_SQL_IN_CHUNK", 2)
+    store = _store(tmp_path)
+    ids = [f"sv02-{n}" for n in range(5)]
+    for n, card_id in enumerate(ids):
+        _insert_simple_card(store, card_id, str(n))
+    resolved = store.get_cards(ids)
+    assert set(resolved) == set(ids)
+    store.close()
+
+
+def test_known_set_codes_excludes_null(tmp_path: Path) -> None:
+    store = _store(tmp_path)  # sv02 has set_code "PAL"
+    store.upsert_set(
+        set_id="nocode",
+        name="Codeless Set",
+        series=None,
+        release_date=None,
+        card_count_total=None,
+        card_count_official=None,
+        set_code=None,
+        symbol_url=None,
+        synced_at="now",
+    )
+    assert store.known_set_codes() == frozenset({"PAL"})
     store.close()
 
 

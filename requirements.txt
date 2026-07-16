@@ -28,3 +28,11 @@ fastapi==0.116.1
 uvicorn==0.35.0
 # Multipart form parsing for FastAPI file uploads.
 python-multipart==0.0.20
+# Loads a local .env into the process environment at startup (main.py); real
+# environment variables always take precedence.
+python-dotenv==1.2.2
+
+# --- Scan collection ----------------------------------------------------------
+# Background upload of accepted scans (image + annotation) to S3 for future
+# encoder fine-tunes. Only exercised when SCANS_S3_BUCKET is configured.
+boto3==1.43.49

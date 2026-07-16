@@ -78,3 +78,23 @@ class HealthResponse(BaseModel):
 
 class CardDetailResponse(CardBase):
     """Catalogue detail for a single card."""
+
+
+class ScanAnnotation(BaseModel):
+    """Client-side annotation accompanying an accepted scan upload."""
+
+    schema_version: int
+    consent: bool
+    card_id: str
+    set_id: str
+    number: str
+    status: str
+    variants: list[VariantOut] = Field(default_factory=list)
+    alternate_card_ids: list[str] = Field(default_factory=list)
+    captured_at: str
+
+
+class ScanAccepted(BaseModel):
+    """Acknowledgement that a scan submission was received."""
+
+    accepted: bool

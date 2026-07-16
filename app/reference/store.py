@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 from app.core import constants
@@ -72,6 +72,10 @@ CREATE TABLE IF NOT EXISTS meta (
 """
 
 _HASH_COLUMNS = ("phash", "dhash", "phash_r", "phash_g", "phash_b")
+
+# Ids per IN(...) query in get_cards; far below SQLite's default host-parameter
+# limit (999 historically, 32k in modern builds) so any build is safe.
+_SQL_IN_CHUNK = 500
 
 
 def reference_db_path(data_dir: str | Path) -> Path:
@@ -210,6 +214,18 @@ class ReferenceStore:
         rows = self._conn.execute("SELECT id FROM sets").fetchall()
         return {row["id"] for row in rows}
 
+    def known_set_codes(self) -> frozenset[str]:
+        """Return every printed set code in the catalogue (stored uppercase).
+
+        Used to validate OCR-read set codes: random uppercase scene text must
+        not be mistaken for a real set code, because a "set code" observation
+        both skips the symbol signal and penalizes every candidate in fusion.
+        """
+        rows = self._conn.execute(
+            "SELECT DISTINCT set_code FROM sets WHERE set_code IS NOT NULL"
+        ).fetchall()
+        return frozenset(row["set_code"] for row in rows)
+
     def set_card_count(self, set_id: str) -> int | None:
         """Return the stored total card count for a set, if known."""
         row = self._conn.execute(
@@ -307,6 +323,32 @@ class ReferenceStore:
         """Return one card as a :class:`CardRef`, or ``None`` if unknown."""
         row = self._conn.execute(_GET_CARD_SQL, (card_id,)).fetchone()
         return _row_to_card(row) if row else None
+
+    def get_cards(self, card_ids: Iterable[str]) -> dict[str, CardRef]:
+        """Return every known card among ``card_ids``, keyed by card id.
+
+        One chunked ``IN`` query instead of a round-trip per id — the recognizer
+        resolves up to ~150 shortlist candidates per scan through this. Unknown
+        ids are silently absent from the result.
+
+        Args:
+            card_ids: Card ids to resolve (duplicates are fine).
+
+        Returns:
+            Mapping of card id to :class:`CardRef` for the ids that exist.
+        """
+        unique = list(dict.fromkeys(card_ids))
+        resolved: dict[str, CardRef] = {}
+        for start in range(0, len(unique), _SQL_IN_CHUNK):
+            chunk = unique[start : start + _SQL_IN_CHUNK]
+            placeholders = ",".join("?" * len(chunk))
+            rows = self._conn.execute(
+                "SELECT " + _CARD_SELECT + _CARD_FROM + f" WHERE c.id IN ({placeholders})",
+                chunk,
+            ).fetchall()
+            for row in rows:
+                resolved[row["id"]] = _row_to_card(row)
+        return resolved
 
     def all_cards(self) -> list[CardRef]:
         """Return every card in the catalogue as :class:`CardRef` objects."""

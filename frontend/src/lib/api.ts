@@ -37,15 +37,55 @@ export interface IdentifyResponse {
   ocr: { number: string | null; number_total: number | null; set_code: string | null } | null;
 }
 
-/** POST a captured frame to the recognizer. */
-export async function identify(blob: Blob, topK = 5): Promise<IdentifyResponse> {
+/**
+ * POST a captured frame to the recognizer.
+ *
+ * With `requireDetection`, the server answers `no_card_detected` when no card
+ * quad is found instead of guessing from the whole frame — used by the live
+ * camera path; pre-cropped photo uploads keep the whole-frame fallback.
+ */
+export async function identify(
+  blob: Blob,
+  topK = 5,
+  requireDetection = false,
+): Promise<IdentifyResponse> {
   const form = new FormData();
   form.append("file", blob, "frame.jpg");
-  const response = await fetch(`${API_BASE}/identify?top_k=${topK}`, { method: "POST", body: form });
+  const detect = requireDetection ? "&require_detection=true" : "";
+  const response = await fetch(`${API_BASE}/identify?top_k=${topK}${detect}`, {
+    method: "POST",
+    body: form,
+  });
   if (!response.ok) {
     throw new Error(`identify failed: HTTP ${response.status}`);
   }
   return (await response.json()) as IdentifyResponse;
+}
+
+/** Mirrors the backend's SCAN_ANNOTATION_SCHEMA_VERSION. */
+export const SCAN_ANNOTATION_SCHEMA_VERSION = 1;
+
+export interface ScanAnnotation {
+  schema_version: number;
+  consent: boolean;
+  card_id: string;
+  set_id: string;
+  number: string;
+  status: string;
+  variants: VariantGuess[];
+  alternate_card_ids: string[];
+  captured_at: string;
+}
+
+/** Submit an accepted scan (photo + annotation) for background collection. */
+export async function submitScan(blob: Blob, annotation: ScanAnnotation): Promise<void> {
+  const form = new FormData();
+  form.append("file", blob, "scan.jpg");
+  form.append("annotation", JSON.stringify(annotation));
+  const response = await fetch(`${API_BASE}/scans`, { method: "POST", body: form });
+  if (!response.ok) {
+    throw new Error(`scan submit failed: HTTP ${response.status}`);
+  }
 }
 
 /** URL of a card's reference image (served by the API from its cache). */

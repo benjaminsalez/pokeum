@@ -8,16 +8,26 @@ validate against the response models. All the real work lives in the pipeline.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Query, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 
-from app.api.schemas import CardDetailResponse, HealthResponse, IdentifyResponse
+from app.api.schemas import (
+    CardDetailResponse,
+    HealthResponse,
+    IdentifyResponse,
+    ScanAccepted,
+    ScanAnnotation,
+)
+from app.collect import ScanCollector
 from app.core import config, constants
 from app.recognize.pipeline import Recognizer
 from app.reference import images
-from app.vision.imaging import decode_bytes
+from app.vision.imaging import cap_long_side, decode_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +37,54 @@ router = APIRouter()
 def _recognizer(request: Request) -> Recognizer:
     """Return the recognizer stored on the application state."""
     return request.app.state.recognizer
+
+
+def _decode_and_identify(
+    recognizer: Recognizer, payload: bytes, top_k: int, require_detection: bool
+) -> dict:
+    """Decode upload bytes, cap their size, and run recognition.
+
+    Runs inside a worker thread: decode and recognition are CPU-bound, and an
+    ``async`` handler doing them inline would stall every concurrent request.
+
+    Args:
+        recognizer: The shared recognizer.
+        payload: Raw uploaded image bytes.
+        top_k: Maximum number of candidates to return.
+        require_detection: Report ``no_card_detected`` instead of falling back
+            to treating the whole frame as a card.
+
+    Returns:
+        The recognition result as a plain dictionary.
+
+    Raises:
+        ValueError: When the bytes cannot be decoded as an image.
+    """
+    image = cap_long_side(decode_bytes(payload), constants.INGEST_MAX_SIDE)
+    result = recognizer.identify(image, top_k=top_k, require_detection=require_detection)
+    data = result.as_dict()
+    if data["status"] == "no_card_detected":
+        _dump_failed_frame(payload)
+    return data
+
+
+def _dump_failed_frame(payload: bytes) -> None:
+    """Save a detection-failed frame to ``SCAN_DEBUG_DIR`` for inspection.
+
+    Diagnostic aid: when detection keeps failing on real captures, the saved
+    JPEGs show exactly what the camera sent. No-op unless the setting is set;
+    never allowed to break the request.
+    """
+    debug_dir = config.scan_debug_dir()
+    if not debug_dir:
+        return
+    try:
+        stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S-%f")
+        path = Path(debug_dir) / f"nocard-{stamp}.jpg"
+        images.save_bytes(path, payload)
+        logger.debug("saved detection-failed frame to %s", path)
+    except OSError as error:
+        logger.warning("could not save debug frame: %s", error)
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -45,6 +103,7 @@ async def identify(
     request: Request,
     file: UploadFile,
     top_k: int = Query(constants.DEFAULT_TOP_K, ge=1, le=50),
+    require_detection: bool = Query(False),
 ) -> dict:
     """Identify the card in an uploaded image.
 
@@ -52,6 +111,9 @@ async def identify(
         request: The incoming request (carries the recognizer).
         file: The uploaded image file.
         top_k: Maximum number of candidates to return.
+        require_detection: When true, answer ``no_card_detected`` if no card
+            quad is found instead of assuming the whole frame is a card. Live
+            camera scans set this; pre-cropped photo uploads keep the fallback.
 
     Returns:
         The recognition result as a dictionary matching :class:`IdentifyResponse`.
@@ -61,11 +123,53 @@ async def identify(
     """
     payload = await file.read()
     try:
-        image = decode_bytes(payload)
+        return await run_in_threadpool(
+            _decode_and_identify, _recognizer(request), payload, top_k, require_detection
+        )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    result = _recognizer(request).identify(image, top_k=top_k)
-    return result.as_dict()
+
+
+@router.post("/scans", status_code=202, response_model=ScanAccepted)
+async def submit_scan(
+    request: Request,
+    background: BackgroundTasks,
+    file: UploadFile,
+    annotation: str = Form(...),
+) -> ScanAccepted:
+    """Accept a saved scan for background collection as training data.
+
+    The response returns immediately; the upload to S3 (if configured) happens
+    after it. The annotation's consent flag is checked server-side as defense
+    in depth — without it the scan is dropped, but the response is identical so
+    the client cannot tell users apart by behaviour.
+
+    Args:
+        request: The incoming request (carries the collector).
+        background: FastAPI background task queue for the actual upload.
+        file: The captured photo as uploaded by the scan UI.
+        annotation: The scan's annotation as a JSON string form field.
+
+    Returns:
+        An acknowledgement; always accepted when the payload is well-formed.
+
+    Raises:
+        HTTPException: 422 when the annotation is not valid JSON for the schema.
+    """
+    try:
+        parsed = ScanAnnotation.model_validate_json(annotation)
+    except ValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    payload = await file.read()
+    if parsed.consent:
+        collector: ScanCollector = request.app.state.collector
+        background.add_task(
+            collector.store,
+            payload,
+            file.content_type or "image/jpeg",
+            parsed.model_dump(),
+        )
+    return ScanAccepted(accepted=True)
 
 
 @router.get("/cards/{card_id}", response_model=CardDetailResponse)

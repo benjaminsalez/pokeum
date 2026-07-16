@@ -51,6 +51,29 @@ def decode_bytes(data: bytes) -> np.ndarray:
     return cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB)
 
 
+def cap_long_side(image: np.ndarray, max_side: int) -> np.ndarray:
+    """Return the image resized so its longer side is at most ``max_side``.
+
+    Recognition never benefits from more pixels than the canonical card size
+    needs, while every filter and warp pays for them; capping here keeps huge
+    phone photos cheap. Images already within the cap are returned unchanged.
+
+    Args:
+        image: An RGB image.
+        max_side: Maximum allowed length of the longer side, in pixels.
+
+    Returns:
+        The same array when already small enough, else an area-interpolated copy.
+    """
+    height, width = image.shape[:2]
+    longest = max(height, width)
+    if longest <= max_side:
+        return image
+    scale = max_side / float(longest)
+    new_size = (max(1, round(width * scale)), max(1, round(height * scale)))
+    return cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
+
+
 def to_gray(image_rgb: np.ndarray) -> np.ndarray:
     """Convert an RGB image to single-channel grayscale."""
     return cv2.cvtColor(image_rgb, cv2.COLOR_RGB2GRAY)

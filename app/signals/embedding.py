@@ -20,6 +20,7 @@ library needed).
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -101,22 +102,50 @@ class OnnxEmbedder:
         self._session = ort.InferenceSession(str(self._path), providers=["CPUExecutionProvider"])
         self._input_name = self._session.get_inputs()[0].name
         size = constants.EMBED_INPUT_SIZE
-        probe = self._forward(np.zeros((size, size, 3), dtype=np.uint8))
-        self.dim = int(probe.shape[0])
+        probe = self._run(np.zeros((1, 3, size, size), dtype=np.float32))
+        self.dim = int(probe.shape[1])
+        # Exported graphs declare a dynamic batch axis, but probe rather than
+        # trust the artifact: an old/foreign export degrades to per-image runs.
+        try:
+            self._run(np.zeros((2, 3, size, size), dtype=np.float32))
+            self._supports_batch = True
+        except Exception:  # noqa: BLE001 - fixed-batch artifact; loop instead
+            logger.info("ONNX model %s has no dynamic batch; embedding per image", self._path.name)
+            self._supports_batch = False
 
-    def _forward(self, image: np.ndarray) -> np.ndarray:
-        """Preprocess one RGB image and run a forward pass, returning a 1-D vector."""
+    def _preprocess(self, image: np.ndarray) -> np.ndarray:
+        """Resize and normalize one RGB image to a ``(3, S, S)`` float32 tensor."""
         size = constants.EMBED_INPUT_SIZE
         pil = Image.fromarray(np.asarray(image, dtype=np.uint8), mode="RGB")
         arr = np.asarray(pil.resize((size, size)), dtype=np.float32) / 255.0
         arr = (arr - _IMAGENET_MEAN) / _IMAGENET_STD
-        tensor = np.transpose(arr, (2, 0, 1))[None, :, :, :].astype(np.float32)
-        outputs = self._session.run(None, {self._input_name: tensor})
-        return np.asarray(outputs[0], dtype=np.float32).ravel()
+        return np.transpose(arr, (2, 0, 1)).astype(np.float32)
+
+    def _run(self, batch: np.ndarray) -> np.ndarray:
+        """Run the session over an ``(N, 3, S, S)`` batch, returning ``(N, D)``."""
+        outputs = self._session.run(None, {self._input_name: batch})
+        features = np.asarray(outputs[0], dtype=np.float32)
+        return features.reshape(batch.shape[0], -1)
 
     def embed(self, image: np.ndarray) -> np.ndarray:
         """Return the L2-normalized embedding of one RGB image."""
-        return l2_normalize(self._forward(image))
+        return l2_normalize(self._run(self._preprocess(image)[None, ...])[0])
+
+    def embed_batch(self, images: Sequence[np.ndarray]) -> list[np.ndarray]:
+        """Return L2-normalized embeddings for several images in one session run.
+
+        Args:
+            images: RGB images to embed together.
+
+        Returns:
+            One normalized vector per input image, in order.
+        """
+        if not images:
+            return []
+        if not self._supports_batch:
+            return [self.embed(image) for image in images]
+        batch = np.stack([self._preprocess(image) for image in images])
+        return [l2_normalize(row) for row in self._run(batch)]
 
 
 def load_embedder(model_path: str | Path) -> Embedder:
@@ -139,6 +168,26 @@ def load_embedder(model_path: str | Path) -> Embedder:
             logger.warning("ONNX embedder failed (%s); using histogram fallback", error)
     logger.info("using histogram fallback embedder")
     return HistogramEmbedder()
+
+
+def embed_images(embedder: Embedder, images: Sequence[np.ndarray]) -> list[np.ndarray]:
+    """Embed several images, batching when the embedder supports it.
+
+    Duck-typed on purpose: the :class:`~app.signals.base.Embedder` Protocol only
+    promises ``embed``, so fakes and simple embedders keep working, while
+    :class:`OnnxEmbedder` gets both forward passes into one session run.
+
+    Args:
+        embedder: Any embedder.
+        images: RGB images to embed.
+
+    Returns:
+        One embedding per input image, in order.
+    """
+    batch = getattr(embedder, "embed_batch", None)
+    if callable(batch):
+        return list(batch(images))
+    return [embedder.embed(image) for image in images]
 
 
 class EmbeddingIndex:

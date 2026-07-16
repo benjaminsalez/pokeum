@@ -1,8 +1,8 @@
 ---
 title: Development workflow
-sources: ["app/core/config.py", "app/core/logging_config.py", "tests/**", ".env.example", ".claude/rules/**", ".claude/hooks/**", ".claude/settings.json", ".pre-commit-config.yaml", "pyproject.toml", "requirements.txt", "requirements-dev.txt", "scripts/fresh-start.sh", "scripts/fresh-start.ps1", "scripts/claude-headroom.sh", "scripts/claude-headroom.ps1"]
+sources: ["app/core/config.py", "app/core/logging_config.py", "tests/**", ".env.example", ".claude/rules/**", ".claude/hooks/**", ".claude/settings.json", ".codex/**", ".agents/**", "AGENTS.md", ".pre-commit-config.yaml", "pyproject.toml", "requirements.txt", "requirements-dev.txt", "scripts/fresh-start.sh", "scripts/fresh-start.ps1", "scripts/claude-headroom.sh", "scripts/claude-headroom.ps1"]
 read-when: "changing settings/logging, tests, dependencies, quality-gate config, CI, hooks/automation, coding conventions, or the fresh-start/detach script"
-verified: a5093831ce1a
+verified: a9b48fc5656f
 ---
 
 # Development workflow
@@ -35,6 +35,10 @@ Adding a new setting is a two-place checklist, every time: the accessor in
 `config.py`, and a key with a placeholder value in `.env.example`. The
 `/new-setting` skill (`.claude/skills/new-setting/SKILL.md`) walks this exact
 checklist and classifies a new value into the right bucket first.
+
+`python main.py ...` loads a local `.env` automatically at startup
+(python-dotenv in `main.py`); variables already set in the shell or platform
+always win, so deployments configured via the environment behave unchanged.
 
 ## Coding conventions (`.claude/rules/conventions.md`)
 
@@ -137,6 +141,13 @@ in [`.claude/settings.json`](../.claude/settings.json):
   its output at 25 lines per check. mypy runs through its daemon (`dmypy`,
   state in gitignored `.dmypy.json`) so warm sweeps take ~100ms, with an
   automatic restart-then-fallback to plain mypy.
+
+The same discipline is mirrored for OpenAI Codex sessions: `.codex/` carries
+the harness config and equivalent hooks, `.agents/skills/` the equivalent
+skills, and `AGENTS.md` the Codex-facing onboarding doc (the analog of
+`CLAUDE.md`). The `.claude/` versions are canonical — change those first and
+mirror deliberately; `.codex/hooks/.state/` and `.check_cache` are per-clone
+state and gitignored like their Claude counterparts.
 
 The automation layer maintains itself through two skills: `/runbook-add`
 turns a newly diagnosed failure into a machine-matched runbook entry, and

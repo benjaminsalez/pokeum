@@ -47,6 +47,30 @@ export default {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
+      fontFamily: {
+        sans: [
+          "Avenir Next",
+          "Segoe UI Variable",
+          "Segoe UI",
+          "ui-sans-serif",
+          "system-ui",
+          "sans-serif",
+        ],
+      },
+      keyframes: {
+        "scanner-sweep": {
+          "0%": { top: "4%", opacity: "0" },
+          "10%, 90%": { opacity: "1" },
+          "100%": { top: "96%", opacity: "0" },
+        },
+        "card-shine": {
+          to: { transform: "translateX(120%)" },
+        },
+      },
+      animation: {
+        "scanner-sweep": "scanner-sweep 1.5s linear infinite",
+        "card-shine": "card-shine 1.1s 240ms ease-out 1",
+      },
     },
   },
   plugins: [animate],

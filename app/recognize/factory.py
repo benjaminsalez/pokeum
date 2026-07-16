@@ -9,6 +9,7 @@ directly with fakes and never touch this module.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from app.core import config
 from app.recognize.pipeline import Recognizer
@@ -71,6 +72,9 @@ def build_recognizer(
         emb_art_index=emb_art,
         ocr_engine=ocr_engine,
         symbol_matcher=symbol_matcher,
+        # One long-lived pool per recognizer: OCR overlaps the dense signals
+        # inside identify(), so two workers cover the two concurrent branches.
+        executor=ThreadPoolExecutor(max_workers=2, thread_name_prefix="recognize"),
     )
 
 

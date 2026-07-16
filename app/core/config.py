@@ -90,3 +90,30 @@ def api_port() -> int:
 def webcam_index() -> int:
     """OpenCV capture-device index used by ``pokeum scan``."""
     return int(get("WEBCAM_INDEX", "0"))
+
+
+# --- Scan diagnostics -------------------------------------------------------
+def scan_debug_dir() -> str:
+    """Directory where frames that failed card detection are saved; empty disables."""
+    return get("SCAN_DEBUG_DIR", "")
+
+
+# --- Scan collection (S3) ---------------------------------------------------
+def scans_s3_bucket() -> str:
+    """S3 bucket accepted scans are uploaded to; empty disables collection."""
+    return get("SCANS_S3_BUCKET", "")
+
+
+def scans_s3_region() -> str:
+    """AWS region of the scans bucket; empty defers to boto3's default chain."""
+    return get("SCANS_S3_REGION", "")
+
+
+def scans_s3_prefix() -> str:
+    """Key prefix under which scan objects are stored in the bucket."""
+    return get("SCANS_S3_PREFIX", "scans")
+
+
+def scans_s3_endpoint_url() -> str:
+    """Custom endpoint URL for S3-compatible stores; empty means real AWS S3."""
+    return get("SCANS_S3_ENDPOINT_URL", "")

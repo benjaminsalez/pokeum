@@ -1,119 +1,216 @@
 <script setup lang="ts">
 import {
   ArrowLeft,
-  Camera,
   CameraOff,
   Check,
-  Copy,
   Download,
-  ScanLine,
-  Trash2,
-  Upload,
+  ImagePlus,
+  RefreshCw,
   X,
 } from "lucide-vue-next";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 
-import Badge from "@/components/ui/Badge.vue";
+import DataNotice from "@/components/DataNotice.vue";
+import PokeballButton from "@/components/scanner/PokeballButton.vue";
+import ScannerFrame from "@/components/scanner/ScannerFrame.vue";
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
-import { cardImageUrl, health, identify, type IdentifyResponse } from "@/lib/api";
-import { downloadFile, toPlainList, toTcgplayerCsv, type ScanEntry } from "@/lib/exporters";
+import {
+  cardImageUrl,
+  identify,
+  SCAN_ANNOTATION_SCHEMA_VERSION,
+  submitScan,
+  type IdentifyResponse,
+} from "@/lib/api";
+import { downloadFile, toTcgplayerCsv, type ScanEntry } from "@/lib/exporters";
+import { downscaleForUpload, guideCropSourceRect } from "@/lib/image";
+import { hasSeenNotice, markNoticeSeen } from "@/lib/notice";
 
 type View = "scan" | "export";
+type CameraState = "starting" | "ready" | "unavailable";
 
 const view = ref<View>("scan");
 const video = ref<HTMLVideoElement | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
-const cameraOn = ref(false);
+const scannerFrame = ref<InstanceType<typeof ScannerFrame> | null>(null);
+const cameraState = ref<CameraState>("starting");
 const scanning = ref(false);
-const apiCards = ref<number | null>(null);
 const pending = ref<IdentifyResponse | null>(null);
+const pendingBlob = ref<Blob | null>(null);
 const flash = ref("");
-const copied = ref(false);
 const entries = ref<ScanEntry[]>([]);
+const showNotice = ref(!hasSeenNotice());
 
 let stream: MediaStream | null = null;
 let flashTimer: number | undefined;
 
-const totalCards = computed(() => entries.value.reduce((sum, e) => sum + e.quantity, 0));
+const totalCards = computed(() => entries.value.reduce((sum, entry) => sum + entry.quantity, 0));
+const collectionCards = computed(() =>
+  entries.value.flatMap((entry) =>
+    Array.from({ length: entry.quantity }, (_, index) => ({
+      card: entry.card,
+      key: `${entry.card.card_id}-${index}`,
+    })),
+  ),
+);
 const pendingMatch = computed(() => pending.value?.match ?? null);
+const isCameraReady = computed(() => cameraState.value === "ready");
 
-onMounted(async () => {
-  try {
-    apiCards.value = (await health()).cards_indexed;
-  } catch {
-    apiCards.value = null;
-  }
-  await startCamera();
+onMounted(() => {
+  void startCamera();
 });
 
-onBeforeUnmount(() => stopCamera());
+onBeforeUnmount(() => {
+  stopCamera();
+  window.clearTimeout(flashTimer);
+});
+
+function haptic(pattern: number | number[]): void {
+  navigator.vibrate?.(pattern);
+}
 
 async function startCamera(): Promise<void> {
+  stopCamera();
+  cameraState.value = "starting";
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    cameraState.value = "unavailable";
+    return;
+  }
+
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      },
       audio: false,
     });
-    if (video.value) {
-      video.value.srcObject = stream;
-      await video.value.play();
-      cameraOn.value = true;
+    if (!video.value) {
+      stopCamera();
+      cameraState.value = "unavailable";
+      return;
     }
+    video.value.srcObject = stream;
+    await video.value.play();
+    cameraState.value = "ready";
   } catch {
-    cameraOn.value = false;
+    stopCamera();
+    cameraState.value = "unavailable";
   }
 }
 
 function stopCamera(): void {
   stream?.getTracks().forEach((track) => track.stop());
   stream = null;
-  cameraOn.value = false;
+  if (video.value) video.value.srcObject = null;
+}
+
+async function setView(nextView: View): Promise<void> {
+  view.value = nextView;
+  pending.value = null;
+  pendingBlob.value = null;
+  if (nextView === "export") {
+    stopCamera();
+    cameraState.value = "starting";
+    return;
+  }
+  await nextTick();
+  await startCamera();
 }
 
 function showFlash(text: string): void {
   flash.value = text;
   window.clearTimeout(flashTimer);
-  flashTimer = window.setTimeout(() => (flash.value = ""), 2200);
+  flashTimer = window.setTimeout(() => {
+    flash.value = "";
+  }, 2400);
 }
 
 function captureFrame(): Promise<Blob | null> {
   const element = video.value;
-  if (!element || !cameraOn.value) return Promise.resolve(null);
+  if (!element || !isCameraReady.value || element.videoWidth === 0) {
+    return Promise.resolve(null);
+  }
+  // Crop to the on-screen guide frame (plus margin) so the recognizer gets
+  // mostly-card pixels instead of the whole scene; full frame as fallback.
+  const frameRect = scannerFrame.value?.getRect() ?? null;
+  const crop = frameRect
+    ? guideCropSourceRect(
+        element.getBoundingClientRect(),
+        frameRect,
+        element.videoWidth,
+        element.videoHeight,
+      )
+    : null;
+  const source = crop ?? { x: 0, y: 0, width: element.videoWidth, height: element.videoHeight };
   const canvas = document.createElement("canvas");
-  canvas.width = element.videoWidth;
-  canvas.height = element.videoHeight;
-  canvas.getContext("2d")?.drawImage(element, 0, 0);
-  return new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/jpeg", 0.92));
+  canvas.width = Math.round(source.width);
+  canvas.height = Math.round(source.height);
+  canvas
+    .getContext("2d")
+    ?.drawImage(
+      element,
+      source.x,
+      source.y,
+      source.width,
+      source.height,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    );
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.92);
+  });
 }
 
 async function scan(): Promise<void> {
+  haptic(12);
   const blob = await captureFrame();
   if (!blob) {
-    showFlash("Camera unavailable — use upload");
+    showFlash("Camera unavailable — upload a photo instead");
     return;
   }
-  await identifyBlob(blob);
+  // Camera scans demand a detected card: a wrong-but-confident match on a
+  // whole-frame fallback is worse than asking the user to center the card.
+  await identifyBlob(blob, true);
 }
 
 async function onUpload(event: Event): Promise<void> {
   const file = (event.target as HTMLInputElement).files?.[0];
-  if (file) await identifyBlob(file);
+  if (file) {
+    haptic(10);
+    await identifyBlob(await downscaleForUpload(file));
+  }
   if (fileInput.value) fileInput.value.value = "";
 }
 
-async function identifyBlob(blob: Blob): Promise<void> {
+async function identifyBlob(blob: Blob, requireDetection = false): Promise<void> {
+  if (scanning.value) return;
+
   scanning.value = true;
   pending.value = null;
+  pendingBlob.value = null;
+
   try {
-    const result = await identify(blob);
+    const result = await identify(blob, 5, requireDetection);
     if (result.match && (result.status === "confident" || result.status === "uncertain")) {
       pending.value = result;
+      pendingBlob.value = blob;
+      haptic([14, 45, 22]);
     } else {
-      showFlash("No card recognized — try again");
+      haptic([18, 50, 18]);
+      showFlash(
+        result.status === "no_card_detected"
+          ? "No card found — center it in the frame"
+          : "No match yet — try a steadier angle",
+      );
     }
   } catch (error) {
-    showFlash(error instanceof Error ? error.message : "Scan failed");
+    haptic([20, 60, 20]);
+    showFlash(error instanceof Error ? error.message : "Scan failed — please try again");
   } finally {
     scanning.value = false;
   }
@@ -122,211 +219,306 @@ async function identifyBlob(blob: Blob): Promise<void> {
 function accept(): void {
   const match = pendingMatch.value;
   if (!match) return;
-  const existing = entries.value.find((e) => e.card.card_id === match.card_id);
+  const existing = entries.value.find((entry) => entry.card.card_id === match.card_id);
   if (existing) {
     existing.quantity += 1;
   } else {
     entries.value.unshift({ card: match, quantity: 1, scannedAt: new Date().toISOString() });
   }
+  collectScan();
   pending.value = null;
-  showFlash(`Saved — ${totalCards.value} in list`);
+  pendingBlob.value = null;
+  haptic([12, 35, 18]);
+  showFlash(`Saved to collection · ${totalCards.value} total`);
+}
+
+/** Fire-and-forget upload of the accepted scan — best-effort, never blocking. */
+function collectScan(): void {
+  const match = pendingMatch.value;
+  const blob = pendingBlob.value;
+  const result = pending.value;
+  if (!match || !blob || !result) return;
+  void submitScan(blob, {
+    schema_version: SCAN_ANNOTATION_SCHEMA_VERSION,
+    consent: true,
+    card_id: match.card_id,
+    set_id: match.set.id,
+    number: match.number,
+    status: result.status,
+    variants: match.variants ?? [],
+    alternate_card_ids: result.alternates.map((alt) => alt.card_id),
+    captured_at: new Date().toISOString(),
+  }).catch(() => {
+    // Collection is best-effort; a failed upload must never surface to the user.
+  });
+}
+
+function dismissNotice(): void {
+  markNoticeSeen();
+  showNotice.value = false;
+  haptic(10);
 }
 
 function reject(): void {
   pending.value = null;
-}
-
-function removeEntry(cardId: string): void {
-  entries.value = entries.value.filter((e) => e.card.card_id !== cardId);
-}
-
-function changeQuantity(cardId: string, delta: number): void {
-  const entry = entries.value.find((e) => e.card.card_id === cardId);
-  if (!entry) return;
-  entry.quantity += delta;
-  if (entry.quantity <= 0) removeEntry(cardId);
+  pendingBlob.value = null;
+  haptic(8);
 }
 
 function exportCsv(): void {
   const stamp = new Date().toISOString().slice(0, 10);
   downloadFile(`pokeum-collection-${stamp}.csv`, toTcgplayerCsv(entries.value));
+  haptic(12);
 }
 
-async function copyList(): Promise<void> {
-  await navigator.clipboard.writeText(toPlainList(entries.value));
-  copied.value = true;
-  setTimeout(() => (copied.value = false), 1500);
-}
 </script>
 
 <template>
-  <!-- ============ SCAN VIEW: full-screen camera ============ -->
-  <div v-if="view === 'scan'" class="fixed inset-0 bg-black">
-    <video ref="video" autoplay playsinline muted class="absolute inset-0 h-full w-full object-cover" />
-
-    <!-- No-camera fallback -->
+  <div
+    v-if="view === 'scan'"
+    class="fixed left-0 top-0 isolate h-svh w-full overflow-hidden bg-zinc-950 text-white"
+  >
+    <video
+      ref="video"
+      autoplay
+      playsinline
+      muted
+      class="absolute inset-0 -z-[4] h-full w-full scale-[1.015] object-cover opacity-0 transition-opacity duration-300 motion-reduce:transition-none"
+      :class="isCameraReady ? 'opacity-100' : ''"
+    />
     <div
-      v-if="!cameraOn"
-      class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white/70"
+      class="pointer-events-none absolute inset-0 -z-[3] bg-[linear-gradient(to_bottom,rgba(0,0,0,0.54),transparent_20%,transparent_72%,rgba(0,0,0,0.76)),radial-gradient(circle_at_50%_50%,transparent_38%,rgba(0,0,0,0.22)_100%)]"
+    />
+    <div
+      class="pointer-events-none absolute inset-0 -z-[2] shadow-[inset_0_0_9rem_rgba(0,0,0,0.32)]"
+    />
+
+    <header
+      class="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 pb-3 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(0.8rem,env(safe-area-inset-top))] sm:px-6"
     >
-      <CameraOff class="h-10 w-10" />
-      <p class="text-sm">No camera — allow access or upload a photo</p>
-      <div class="flex gap-2">
-        <Button variant="secondary" size="sm" @click="startCamera">
-          <Camera />
-          Retry camera
-        </Button>
-        <Button variant="secondary" size="sm" @click="fileInput?.click()">
-          <Upload />
-          Upload
-        </Button>
-      </div>
-    </div>
+      <span aria-hidden="true" />
 
-    <!-- Card guide -->
-    <div v-if="cameraOn && !pendingMatch" class="pointer-events-none absolute inset-0 flex items-center justify-center">
-      <div class="h-[70%] aspect-[63/88] rounded-xl border-2 border-white/50 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
-    </div>
-
-    <!-- Top bar -->
-    <div class="absolute inset-x-0 top-0 flex items-center justify-between p-4">
-      <Badge variant="secondary" class="bg-black/50 text-white backdrop-blur">
-        {{ apiCards === null ? "API offline" : `${totalCards} scanned` }}
-      </Badge>
-      <div class="flex gap-2">
-        <Button variant="secondary" size="icon" class="bg-black/50 text-white backdrop-blur hover:bg-black/70" @click="fileInput?.click()">
-          <Upload />
-        </Button>
-        <Button class="bg-white text-black hover:bg-white/90" @click="view = 'export'">
-          Done
-          <Badge v-if="entries.length" variant="secondary" class="ml-1">{{ totalCards }}</Badge>
-        </Button>
-      </div>
-    </div>
-
-    <!-- Flash message -->
-    <div v-if="flash" class="absolute inset-x-0 top-20 flex justify-center">
-      <Badge variant="secondary" class="bg-black/60 text-white backdrop-blur">{{ flash }}</Badge>
-    </div>
-
-    <!-- Scan button -->
-    <div v-if="!pendingMatch" class="absolute inset-x-0 bottom-8 flex justify-center">
       <button
-        class="flex h-20 w-20 items-center justify-center rounded-full border-4 border-white bg-white/20 text-white backdrop-blur transition active:scale-95 disabled:opacity-40"
-        :disabled="scanning || !cameraOn"
-        aria-label="Scan card"
-        @click="scan"
+        type="button"
+        class="inline-flex min-h-11 touch-manipulation items-center justify-center gap-2 rounded-lg border border-white/10 bg-zinc-950/60 px-3 text-xs font-semibold text-white shadow-lg backdrop-blur-xl transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+        @click="setView('export')"
       >
-        <ScanLine class="h-8 w-8" :class="scanning ? 'animate-pulse' : ''" />
+        <span>Collection</span>
+        <span
+          v-if="totalCards"
+          class="grid h-6 min-w-6 place-items-center rounded-md bg-white px-1 text-[0.7rem] font-extrabold text-zinc-900"
+        >
+          {{ totalCards }}
+        </span>
       </button>
-    </div>
-
-    <!-- Pending confirmation sheet: card visual left, details + actions right -->
-    <div v-if="pendingMatch" class="absolute inset-x-0 bottom-0 p-4">
-      <Card class="mx-auto flex max-w-md items-stretch gap-4 border-0 bg-background/95 p-4 backdrop-blur">
-        <!-- Left: the card it thinks it is -->
-        <img
-          :src="cardImageUrl(pendingMatch.card_id)"
-          :alt="pendingMatch.name"
-          class="max-h-44 self-center rounded-lg border shadow-md"
-          @error="($event.target as HTMLImageElement).style.display = 'none'"
-        />
-        <!-- Right: details on top, horizontal actions at the bottom -->
-        <div class="flex min-w-0 flex-1 flex-col">
-          <div class="min-w-0 flex-1 space-y-0.5">
-            <p class="truncate font-semibold leading-tight">{{ pendingMatch.name }}</p>
-            <p class="truncate text-xs text-muted-foreground">
-              {{ pendingMatch.set.name }} · {{ pendingMatch.number }}
-            </p>
-            <div class="flex flex-wrap gap-1 pt-1">
-              <Badge
-                v-for="variant in (pendingMatch.variants ?? []).filter((v) => v.present)"
-                :key="variant.kind"
-                variant="outline"
-              >
-                {{ variant.kind.replace("_", " ") }}
-              </Badge>
-            </div>
-          </div>
-          <div class="flex gap-2 pt-3">
-            <Button variant="outline" size="sm" class="flex-1" @click="reject">
-              <X />
-              Skip
-            </Button>
-            <Button size="sm" class="flex-1" @click="accept">
-              <Check />
-              Save
-            </Button>
-          </div>
-        </div>
-      </Card>
-    </div>
-
-    <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onUpload" />
-  </div>
-
-  <!-- ============ EXPORT VIEW ============ -->
-  <div v-else class="min-h-screen bg-background">
-    <header class="border-b">
-      <div class="container flex h-14 items-center justify-between">
-        <Button variant="ghost" size="sm" @click="view = 'scan'">
-          <ArrowLeft />
-          Keep scanning
-        </Button>
-        <Badge variant="outline">{{ totalCards }} card{{ totalCards === 1 ? "" : "s" }}</Badge>
-      </div>
     </header>
 
-    <main class="container max-w-2xl space-y-4 py-6">
-      <div class="flex items-center justify-between">
-        <div>
-          <h1 class="text-xl font-semibold">Your scanned list</h1>
-          <p class="text-sm text-muted-foreground">
-            Export as TCGplayer-style CSV — importable in most collection trackers.
-          </p>
+    <div
+      v-if="cameraState === 'unavailable'"
+      class="absolute left-1/2 top-1/2 z-10 flex w-[min(calc(100%_-_2rem),25rem)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-3 rounded-xl border border-white/10 bg-zinc-900/80 p-6 text-center shadow-2xl backdrop-blur-2xl"
+    >
+      <div
+        aria-hidden="true"
+        class="grid h-16 w-16 place-items-center rounded-full border border-white/10 bg-white/[0.07]"
+      >
+        <CameraOff class="h-6 w-6 text-white/70" />
+      </div>
+      <p class="mt-1 text-base font-bold tracking-tight">Camera is unavailable</p>
+      <p class="max-w-sm text-sm leading-relaxed text-white/60">
+        Allow camera access in your browser, or choose a clear photo from your library.
+      </p>
+      <div class="flex w-full gap-2.5 pt-1">
+        <Button variant="secondary" size="lg" class="min-h-12 flex-1" @click="startCamera">
+          <RefreshCw />
+          Retry
+        </Button>
+        <Button size="lg" class="min-h-12 flex-1" @click="fileInput?.click()">
+          <ImagePlus />
+          Choose photo
+        </Button>
+      </div>
+    </div>
+
+    <div
+      v-if="scanning && !isCameraReady"
+      role="status"
+      class="absolute left-1/2 top-1/2 z-20 h-20 w-28 -translate-x-1/2 -translate-y-1/2 overflow-hidden"
+    >
+      <div
+        class="absolute inset-x-2 top-[4%] h-px animate-scanner-sweep bg-sky-300 shadow-[0_0_6px_1px_rgba(125,211,252,0.65)] motion-reduce:top-1/2 motion-reduce:animate-none"
+      />
+    </div>
+
+    <div
+      v-if="isCameraReady && !pendingMatch"
+      class="pointer-events-none absolute inset-x-0 bottom-[max(9.8rem,calc(env(safe-area-inset-bottom)+8.8rem))] top-[max(4.5rem,calc(env(safe-area-inset-top)+3.6rem))] grid place-items-center [@media(max-height:700px)]:bottom-[max(7.4rem,calc(env(safe-area-inset-bottom)+6.8rem))] [@media(max-height:700px)]:top-[max(3.8rem,calc(env(safe-area-inset-top)+3.1rem))]"
+    >
+      <ScannerFrame ref="scannerFrame" :scanning="scanning" />
+    </div>
+
+    <Transition
+      enter-active-class="transition duration-200 ease-out motion-reduce:transition-none"
+      enter-from-class="-translate-y-2 scale-95 opacity-0"
+      leave-active-class="transition duration-150 ease-in motion-reduce:transition-none"
+      leave-to-class="-translate-y-2 scale-95 opacity-0"
+    >
+      <div
+        v-if="flash"
+        role="status"
+        aria-live="polite"
+        class="pointer-events-none absolute inset-x-0 top-[max(4.8rem,calc(env(safe-area-inset-top)+3.8rem))] z-50 flex justify-center px-4"
+      >
+        <div
+          class="flex min-h-10 items-center gap-2 rounded-lg border border-white/10 bg-zinc-950/80 px-3.5 py-2 text-xs font-semibold text-white shadow-xl backdrop-blur-xl"
+        >
+          <Check v-if="flash.startsWith('Saved')" class="h-4 w-4 text-green-400" />
+          <span>{{ flash }}</span>
         </div>
       </div>
+    </Transition>
 
-      <Card v-if="!entries.length" class="p-10 text-center text-muted-foreground">
-        Nothing saved yet — go scan some cards.
-      </Card>
+    <div
+      v-if="isCameraReady && !pendingMatch"
+      class="absolute inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 flex justify-center bg-gradient-to-t from-black/60 to-transparent pt-10"
+    >
+      <PokeballButton :disabled="scanning" :scanning="scanning" @click="scan" />
+    </div>
 
-      <Card v-else>
-        <ul class="divide-y">
-          <li
-            v-for="entry in entries"
-            :key="entry.card.card_id"
-            class="flex items-center justify-between gap-3 p-4"
+    <Transition
+      enter-active-class="transition duration-200 ease-out motion-reduce:transition-none"
+      enter-from-class="opacity-0"
+      leave-active-class="transition duration-150 ease-in motion-reduce:transition-none"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="pendingMatch"
+        class="absolute inset-0 z-40 flex items-end justify-center pb-[max(1rem,env(safe-area-inset-bottom))]"
+      >
+        <button
+          type="button"
+          class="absolute inset-0 border-0 bg-black/45 backdrop-blur-[4px]"
+          aria-label="Dismiss match"
+          @click="reject"
+        />
+        <section
+          aria-labelledby="match-title"
+          class="relative z-10 max-h-[calc(100svh_-_2rem)] w-[calc(100%_-_1.5rem)] max-w-lg overflow-y-auto overscroll-contain rounded-xl border border-white/50 bg-zinc-50/95 p-4 text-zinc-900 shadow-[0_-16px_60px_rgba(0,0,0,0.28)] backdrop-blur-2xl"
+        >
+          <div
+            class="grid grid-cols-[6.2rem_minmax(0,1fr)] items-stretch gap-4 [@media(max-height:700px)]:grid-cols-[5.3rem_minmax(0,1fr)]"
           >
-            <div class="min-w-0">
-              <p class="truncate font-medium">{{ entry.card.name }}</p>
-              <p class="truncate text-sm text-muted-foreground">
-                {{ entry.card.set.name }} · {{ entry.card.number }}
-                <span v-if="entry.card.set.code"> · {{ entry.card.set.code }}</span>
-              </p>
+            <div
+              class="relative min-h-[8.4rem] overflow-hidden rounded-lg bg-zinc-100 shadow-md [@media(max-height:700px)]:min-h-[7.2rem]"
+            >
+              <img
+                :src="cardImageUrl(pendingMatch.card_id)"
+                :alt="pendingMatch.name"
+                class="h-full w-full object-cover"
+                @error="($event.target as HTMLImageElement).style.display = 'none'"
+              />
+              <span
+                aria-hidden="true"
+                class="pointer-events-none absolute inset-0 -translate-x-[120%] animate-card-shine bg-[linear-gradient(120deg,transparent_25%,rgba(255,255,255,0.28)_42%,transparent_58%)] motion-reduce:animate-none"
+              />
             </div>
-            <div class="flex items-center gap-1">
-              <Button variant="outline" size="icon" class="h-8 w-8" @click="changeQuantity(entry.card.card_id, -1)">−</Button>
-              <span class="w-8 text-center font-medium">{{ entry.quantity }}</span>
-              <Button variant="outline" size="icon" class="h-8 w-8" @click="changeQuantity(entry.card.card_id, 1)">+</Button>
-              <Button variant="ghost" size="icon" class="h-8 w-8" @click="removeEntry(entry.card.card_id)">
-                <Trash2 class="h-4 w-4 text-muted-foreground" />
-              </Button>
-            </div>
-          </li>
-        </ul>
-      </Card>
 
-      <div class="flex gap-2">
-        <Button class="flex-1" :disabled="!entries.length" @click="exportCsv">
-          <Download />
-          Export CSV
-        </Button>
-        <Button variant="outline" class="flex-1" :disabled="!entries.length" @click="copyList">
-          <Copy />
-          {{ copied ? "Copied!" : "Copy as text" }}
-        </Button>
+            <div class="flex min-w-0 flex-col justify-between py-1 pr-1">
+              <div>
+                <h2
+                  id="match-title"
+                  class="truncate text-lg font-extrabold leading-tight tracking-tight"
+                >
+                  {{ pendingMatch.name }}
+                </h2>
+                <p class="mt-1 truncate text-xs text-zinc-600">{{ pendingMatch.set.name }}</p>
+                <p class="mt-0.5 truncate text-[0.7rem] font-semibold text-zinc-400">
+                  {{ pendingMatch.set.code ? `${pendingMatch.set.code} · ` : "" }}{{ pendingMatch.number }}
+                </p>
+                <p
+                  v-if="(pendingMatch.variants ?? []).some((variant) => variant.present)"
+                  class="mt-2 text-[0.7rem] capitalize leading-relaxed text-zinc-500"
+                >
+                  {{
+                    (pendingMatch.variants ?? [])
+                      .filter((variant) => variant.present)
+                      .map((variant) => variant.kind.replaceAll("_", " "))
+                      .join(" · ")
+                  }}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex gap-2.5 pt-3">
+            <Button variant="outline" size="lg" class="min-h-12 flex-1" @click="reject">
+              <X />
+              Not this one
+            </Button>
+            <Button
+              size="lg"
+              class="min-h-12 flex-[1.2] shadow-[0_8px_20px_rgba(0,0,0,0.16)]"
+              @click="accept"
+            >
+              <Check />
+              Save card
+            </Button>
+          </div>
+        </section>
       </div>
-    </main>
+    </Transition>
+
+    <input
+      ref="fileInput"
+      type="file"
+      accept="image/*"
+      class="sr-only"
+      @change="onUpload"
+    />
   </div>
+
+  <div v-else class="min-h-svh bg-background">
+    <Button
+      variant="outline"
+      size="icon"
+      class="fixed left-[max(0.75rem,env(safe-area-inset-left))] top-[max(0.75rem,env(safe-area-inset-top))] z-20 rounded-md bg-background/90 shadow-md backdrop-blur"
+      aria-label="Back to scanner"
+      @click="setView('scan')"
+    >
+      <ArrowLeft />
+    </Button>
+
+    <main
+      class="grid grid-cols-2 gap-2 p-2 pb-24 pt-[calc(max(0.75rem,env(safe-area-inset-top))_+_3.5rem)] sm:grid-cols-3 sm:gap-3 sm:p-3 sm:pb-24 md:grid-cols-4 xl:grid-cols-5"
+    >
+      <Card
+        v-for="item in collectionCards"
+        :key="item.key"
+        class="aspect-[63/88] overflow-hidden rounded-lg border-0 bg-muted shadow-none"
+      >
+        <img
+          :src="cardImageUrl(item.card.card_id)"
+          :alt="item.card.name"
+          class="h-full w-full object-cover"
+          loading="lazy"
+          @error="($event.target as HTMLImageElement).style.visibility = 'hidden'"
+        />
+      </Card>
+    </main>
+
+    <div
+      class="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-3 right-3 z-20 rounded-lg border bg-background/95 p-3 shadow-lg backdrop-blur"
+    >
+      <Button
+        size="lg"
+        class="mx-auto min-h-12 w-full max-w-md rounded-md"
+        :disabled="!entries.length"
+        @click="exportCsv"
+      >
+        <Download />
+        Export CSV
+      </Button>
+    </div>
+  </div>
+
+  <DataNotice v-if="showNotice" @dismiss="dismissNotice" />
 </template>

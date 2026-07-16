@@ -84,12 +84,13 @@ def cmd_index(args: argparse.Namespace) -> int:
 
 def cmd_identify(args: argparse.Namespace) -> int:
     """Handle ``identify``: recognize the card in one image file."""
+    from app.core import constants
     from app.recognize.factory import build_recognizer
-    from app.vision.imaging import load_image
+    from app.vision.imaging import cap_long_side, load_image
 
     data_dir = _resolve_data_dir(args)
     recognizer = build_recognizer(data_dir=data_dir, with_ocr=not args.no_ocr)
-    image = load_image(args.image)
+    image = cap_long_side(load_image(args.image), constants.INGEST_MAX_SIDE)
     result = recognizer.identify(image, top_k=args.top_k)
     data = result.as_dict()
     _emit(json.dumps(data) if args.json else _format_result(data))

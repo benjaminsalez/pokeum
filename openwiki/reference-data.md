@@ -2,7 +2,7 @@
 title: Reference data & index
 sources: ["app/reference/**", "scripts/export_embedder.py"]
 read-when: "changing TCGdex sync, the SQLite catalogue schema, image caching, index build/load, or the ONNX embedder export"
-verified: b9a6e044d582
+verified: a9b48fc5656f
 ---
 
 # Reference data & index
@@ -46,6 +46,10 @@ Two details matter downstream:
   `find_card_ids_by_number(number, total)` powers OCR fusion's consistency set.
 - **`era`** — derived from the set's release year (`era_for_year`), used to gate
   variant checks and pick the set-symbol zone. WOTC-era ≈ released ≤ 2003.
+- **Batched reads for the hot path** — `get_cards(ids)` resolves a shortlist in
+  chunked `IN` queries (one per 500 ids, not one per id), and
+  `known_set_codes()` returns the printed set codes the pipeline uses to
+  validate OCR output (see [recognition-pipeline](recognition-pipeline.md)).
 
 The connection is opened `check_same_thread=False`: the FastAPI service runs sync
 routes in a thread pool and sync uses worker threads. Access is read-mostly and
