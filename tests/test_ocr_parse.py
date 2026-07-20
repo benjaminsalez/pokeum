@@ -2,9 +2,37 @@
 
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
+import numpy as np
 import pytest
 
+from app.core import constants
 from app.signals import ocr
+
+
+def test_rapidocr_uses_card_strip_optimized_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeRapidOcr:
+        def __init__(self, *, params: dict[str, object]) -> None:
+            captured.update(params)
+
+        def __call__(self, image: np.ndarray) -> SimpleNamespace:
+            return SimpleNamespace(txts=(), scores=())
+
+    monkeypatch.setitem(sys.modules, "rapidocr", SimpleNamespace(RapidOCR=FakeRapidOcr))
+    engine = ocr.RapidOcrEngine()
+
+    assert engine.read_text(np.zeros((88, 630, 3), dtype=np.uint8)) == []
+    assert captured == {
+        "Det.limit_type": "max",
+        "Det.limit_side_len": constants.OCR_DETECT_MAX_SIDE,
+        "EngineConfig.onnxruntime.intra_op_num_threads": constants.OCR_INTRA_OP_THREADS,
+        "EngineConfig.onnxruntime.inter_op_num_threads": constants.OCR_INTER_OP_THREADS,
+        "Global.use_cls": False,
+    }
 
 
 @pytest.mark.parametrize(

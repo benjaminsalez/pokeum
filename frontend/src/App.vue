@@ -30,7 +30,7 @@ import {
   saveCollection,
 } from "@/lib/collection";
 import { downloadFile, toTcgplayerCsv, type ScanEntry } from "@/lib/exporters";
-import { downscaleForUpload, guideCropSourceRect } from "@/lib/image";
+import { GUIDE_CROP_MARGIN, downscaleForUpload, guideCropSourceRect } from "@/lib/image";
 import { hasSeenNotice, markNoticeSeen } from "@/lib/notice";
 
 type View = "scan" | "export";
@@ -215,9 +215,9 @@ async function scan(): Promise<void> {
     showFlash("Camera unavailable — upload a photo instead");
     return;
   }
-  // Camera scans demand a detected card: a wrong-but-confident match on a
-  // whole-frame fallback is worse than asking the user to center the card.
-  await identifyBlob(blob, true);
+  // Quad rectification remains preferred, but the server can recover this
+  // known guide region when glare or a low-contrast background breaks its edge.
+  await identifyBlob(blob, false, GUIDE_CROP_MARGIN);
 }
 
 async function onUpload(event: Event): Promise<void> {
@@ -229,7 +229,11 @@ async function onUpload(event: Event): Promise<void> {
   if (fileInput.value) fileInput.value.value = "";
 }
 
-async function identifyBlob(blob: Blob, requireDetection = false): Promise<void> {
+async function identifyBlob(
+  blob: Blob,
+  requireDetection = false,
+  guideMargin?: number,
+): Promise<void> {
   if (scanning.value) return;
 
   scanning.value = true;
@@ -237,7 +241,7 @@ async function identifyBlob(blob: Blob, requireDetection = false): Promise<void>
   pendingBlob.value = null;
 
   try {
-    const result = await identify(blob, 5, requireDetection);
+    const result = await identify(blob, 5, requireDetection, guideMargin);
     if (result.match && (result.status === "confident" || result.status === "uncertain")) {
       pending.value = result;
       pendingBlob.value = blob;

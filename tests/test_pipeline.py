@@ -10,9 +10,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
 
-from app.models import RecognitionStatus
+from app.models import Candidate, RecognitionStatus
 from app.recognize.pipeline import Recognizer
 from app.reference import index as index_module
 from app.reference.store import ReferenceStore
@@ -72,6 +73,42 @@ def test_recognizes_indexed_card(tmp_path: Path) -> None:
     assert result.status in (RecognitionStatus.CONFIDENT, RecognitionStatus.UNCERTAIN)
     assert result.match is not None
     assert result.match.card.card_id == "s1-2"
+
+
+def test_guided_scan_recognizes_card_without_quad(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recognizer = _build(tmp_path)
+    frame = np.full((546, 390, 3), (128, 128, 128), dtype=np.uint8)
+    frame[63:483, 45:345] = _COLORS["s1-2"]
+    monkeypatch.setattr("app.recognize.pipeline.detect_card_quad", lambda _image: None)
+
+    result = recognizer.identify(frame, guide_margin=0.15)
+
+    assert result.status == RecognitionStatus.CONFIDENT
+    assert result.match is not None
+    assert result.match.card.card_id == "s1-2"
+
+
+def test_guided_fallback_rejects_uncertain_match(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recognizer = _build(tmp_path)
+    card = recognizer.store.get_card("s1-2")
+    assert card is not None
+    candidate = Candidate(card=card, confidence=0.7)
+    monkeypatch.setattr("app.recognize.pipeline.detect_card_quad", lambda _image: None)
+    monkeypatch.setattr(
+        "app.recognize.pipeline.fusion.fuse",
+        lambda *_args, **_kwargs: (RecognitionStatus.UNCERTAIN, [candidate]),
+    )
+
+    result = recognizer.identify(
+        np.full((546, 390, 3), _COLORS["s1-2"], dtype=np.uint8), guide_margin=0.15
+    )
+
+    assert result.status == RecognitionStatus.NO_MATCH
+    assert result.match is None
 
 
 class _FakeOcr:

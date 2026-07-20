@@ -123,6 +123,16 @@ def test_identify_require_detection_reports_no_card(tmp_path: Path) -> None:
     assert response.json()["status"] == "no_card_detected"
 
 
+def test_identify_accepts_guide_margin(tmp_path: Path) -> None:
+    with TestClient(create_app(_recognizer(tmp_path))) as client:
+        response = client.post(
+            "/api/identify?guide_margin=0.15",
+            files={"file": ("card.png", _png_bytes(), "image/png")},
+        )
+    assert response.status_code == 200
+    assert response.json()["status"] == "no_match"
+
+
 def test_identify_detection_failure_dumps_frame(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

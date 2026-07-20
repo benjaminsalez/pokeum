@@ -108,6 +108,7 @@ class Recognizer:
         *,
         top_k: int = constants.DEFAULT_TOP_K,
         require_detection: bool = False,
+        guide_margin: float | None = None,
     ) -> RecognitionResult:
         """Recognize the card in an RGB image.
 
@@ -116,6 +117,9 @@ class Recognizer:
             top_k: Maximum candidates to return.
             require_detection: When ``True``, return ``NO_CARD_DETECTED`` if no
                 card quad is found instead of assuming the whole frame is a card.
+            guide_margin: Background added around a known centred card guide on
+                each side, as a fraction of the guide size. When detection fails,
+                the guide region is used instead of the whole frame.
 
         Returns:
             The recognition result, including the pick, alternates, and variants.
@@ -129,12 +133,19 @@ class Recognizer:
                 image_rgb.shape[0],
             )
             return RecognitionResult(status=RecognitionStatus.NO_CARD_DETECTED)
-        card = rectify_or_whole(image_rgb, quad)
+        used_guide_fallback = quad is None and guide_margin is not None
+        card = rectify_or_whole(image_rgb, quad, guide_margin=guide_margin)
+        if quad is not None:
+            quad_status = "detected"
+        elif used_guide_fallback:
+            quad_status = "NOT found (guide fallback)"
+        else:
+            quad_status = "NOT found (whole-frame fallback)"
         logger.debug(
             "identify: input %dx%d, card quad %s",
             image_rgb.shape[1],
             image_rgb.shape[0],
-            "detected" if quad is not None else "NOT found (whole-frame fallback)",
+            quad_status,
         )
         t_detect = time.perf_counter()
 
@@ -168,6 +179,9 @@ class Recognizer:
             ocr_consistent_ids=consistent,
             top_k=top_k,
         )
+        if used_guide_fallback and status == RecognitionStatus.UNCERTAIN:
+            logger.debug("identify: guide fallback did not clear the confident threshold")
+            status = RecognitionStatus.NO_MATCH
         result = self._assemble(status, candidates, card, observation)
         if logger.isEnabledFor(logging.DEBUG):
             self._log_fusion_diagnostics(result)

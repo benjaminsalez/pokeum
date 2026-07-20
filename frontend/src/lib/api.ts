@@ -42,18 +42,21 @@ export interface IdentifyResponse {
  * POST a captured frame to the recognizer.
  *
  * With `requireDetection`, the server answers `no_card_detected` when no card
- * quad is found instead of guessing from the whole frame — used by the live
- * camera path; pre-cropped photo uploads keep the whole-frame fallback.
+ * quad is found. `guideMargin` instead lets a guided camera capture fall back
+ * to its known inner card region when quad detection fails.
  */
 export async function identify(
   blob: Blob,
   topK = 5,
   requireDetection = false,
+  guideMargin?: number,
 ): Promise<IdentifyResponse> {
   const form = new FormData();
   form.append("file", blob, "frame.jpg");
-  const detect = requireDetection ? "&require_detection=true" : "";
-  const response = await fetch(`${API_BASE}/identify?top_k=${topK}${detect}`, {
+  const query = new URLSearchParams({ top_k: String(topK) });
+  if (requireDetection) query.set("require_detection", "true");
+  if (guideMargin !== undefined) query.set("guide_margin", String(guideMargin));
+  const response = await fetch(`${API_BASE}/identify?${query}`, {
     method: "POST",
     body: form,
   });

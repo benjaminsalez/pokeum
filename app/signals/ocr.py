@@ -18,6 +18,7 @@ import threading
 
 import numpy as np
 
+from app.core import constants
 from app.models import OcrObservation
 from app.signals.base import OcrEngine
 from app.vision import regions
@@ -113,7 +114,19 @@ class RapidOcrEngine:
         """Construct the underlying RapidOCR reader (loaded lazily on import)."""
         from rapidocr import RapidOCR
 
-        self._reader = RapidOCR()
+        self._reader = RapidOCR(
+            params={
+                # The input is a known, rectified text strip rather than an
+                # arbitrary document; never upscale it to the generic default.
+                "Det.limit_type": "max",
+                "Det.limit_side_len": constants.OCR_DETECT_MAX_SIDE,
+                "EngineConfig.onnxruntime.intra_op_num_threads": (constants.OCR_INTRA_OP_THREADS),
+                "EngineConfig.onnxruntime.inter_op_num_threads": (constants.OCR_INTER_OP_THREADS),
+                # Rectified cards are upright. The generic 180-degree text
+                # classifier adds inference without improving these reads.
+                "Global.use_cls": False,
+            }
+        )
         # The service handles requests in a thread pool; RapidOCR's reader is
         # not documented as thread-safe, so serialize access to the shared one.
         self._lock = threading.Lock()

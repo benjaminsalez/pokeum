@@ -40,7 +40,11 @@ def _recognizer(request: Request) -> Recognizer:
 
 
 def _decode_and_identify(
-    recognizer: Recognizer, payload: bytes, top_k: int, require_detection: bool
+    recognizer: Recognizer,
+    payload: bytes,
+    top_k: int,
+    require_detection: bool,
+    guide_margin: float | None,
 ) -> dict:
     """Decode upload bytes, cap their size, and run recognition.
 
@@ -53,6 +57,7 @@ def _decode_and_identify(
         top_k: Maximum number of candidates to return.
         require_detection: Report ``no_card_detected`` instead of falling back
             to treating the whole frame as a card.
+        guide_margin: Background added around a centred scanner guide on each side.
 
     Returns:
         The recognition result as a plain dictionary.
@@ -61,7 +66,12 @@ def _decode_and_identify(
         ValueError: When the bytes cannot be decoded as an image.
     """
     image = cap_long_side(decode_bytes(payload), constants.INGEST_MAX_SIDE)
-    result = recognizer.identify(image, top_k=top_k, require_detection=require_detection)
+    result = recognizer.identify(
+        image,
+        top_k=top_k,
+        require_detection=require_detection,
+        guide_margin=guide_margin,
+    )
     data = result.as_dict()
     if data["status"] == "no_card_detected":
         _dump_failed_frame(payload)
@@ -104,6 +114,7 @@ async def identify(
     file: UploadFile,
     top_k: int = Query(constants.DEFAULT_TOP_K, ge=1, le=50),
     require_detection: bool = Query(False),
+    guide_margin: float | None = Query(None, ge=0.0, le=0.5),
 ) -> dict:
     """Identify the card in an uploaded image.
 
@@ -112,8 +123,9 @@ async def identify(
         file: The uploaded image file.
         top_k: Maximum number of candidates to return.
         require_detection: When true, answer ``no_card_detected`` if no card
-            quad is found instead of assuming the whole frame is a card. Live
-            camera scans set this; pre-cropped photo uploads keep the fallback.
+            quad is found instead of assuming the whole frame is a card.
+        guide_margin: Background added around a centred scanner guide on each
+            side. Guided scans use the inner guide when quad detection fails.
 
     Returns:
         The recognition result as a dictionary matching :class:`IdentifyResponse`.
@@ -124,7 +136,12 @@ async def identify(
     payload = await file.read()
     try:
         return await run_in_threadpool(
-            _decode_and_identify, _recognizer(request), payload, top_k, require_detection
+            _decode_and_identify,
+            _recognizer(request),
+            payload,
+            top_k,
+            require_detection,
+            guide_margin,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

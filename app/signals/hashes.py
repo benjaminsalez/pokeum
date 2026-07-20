@@ -63,6 +63,11 @@ def hex_to_bits(hex_str: str) -> np.ndarray:
     return flat.astype(np.uint8)
 
 
+def _hex_to_packed(hex_str: str) -> np.ndarray:
+    """Decode a hash hex string directly into packed ``uint8`` bytes."""
+    return np.frombuffer(bytes.fromhex(hex_str), dtype=np.uint8)
+
+
 class HashIndex:
     """In-memory bit matrices for hash matching across the catalogue."""
 
@@ -71,8 +76,8 @@ class HashIndex:
 
         Args:
             card_ids: Row order for every matrix.
-            matrices: Kind → ``(N, HASH_BITS)`` ``uint8`` matrix. A kind whose
-                rows are absent for some cards is simply omitted here.
+            matrices: Kind → ``(N, HASH_BITS / 8)`` packed ``uint8`` matrix.
+                A kind whose rows are absent for some cards is simply omitted.
         """
         self.card_ids = card_ids
         self.matrices = matrices
@@ -95,7 +100,9 @@ class HashIndex:
         matrices: dict[str, np.ndarray] = {}
         for kind in HASH_KINDS:
             if usable and all(values.get(kind) for _, values in usable):
-                matrices[kind] = np.vstack([hex_to_bits(values[kind]) for _, values in usable])
+                # Direct hex decoding avoids constructing one ImageHash and a
+                # 256-byte unpacked row per card during service startup.
+                matrices[kind] = np.vstack([_hex_to_packed(values[kind]) for _, values in usable])
         return cls(card_ids, matrices)
 
     def __len__(self) -> int:
@@ -124,8 +131,8 @@ class HashIndex:
         for kind, matrix in self.matrices.items():
             if not query_hashes.get(kind):
                 continue
-            bits = hex_to_bits(query_hashes[kind])
-            distances = np.count_nonzero(matrix != bits[None, :], axis=1)
+            packed = _hex_to_packed(query_hashes[kind])
+            distances = np.bitwise_count(np.bitwise_xor(matrix, packed)).sum(axis=1, dtype=np.int32)
             best = np.minimum(best, distances)
         scores = 1.0 - best.astype(np.float32) / float(constants.HASH_BITS)
         order = np.argsort(scores)[::-1][:top_k]

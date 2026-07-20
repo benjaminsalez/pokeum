@@ -2,8 +2,8 @@
 
 Warps a detected quad onto a fixed-size, front-facing rectangle so every card is
 compared at the same scale and every fractional crop box lands in the same place.
-When no quad was detected, the whole image is centre-cropped to the card aspect
-and resized instead — good enough for already-cropped scans and screenshots.
+When no quad was detected, a known scanner guide can be recovered from its
+margin-expanded capture; other callers centre-crop the whole image instead.
 """
 
 from __future__ import annotations
@@ -61,8 +61,40 @@ def center_crop_to_card(image_rgb: np.ndarray) -> np.ndarray:
     return resize(cropped, _CANON_W, _CANON_H)
 
 
-def rectify_or_whole(image_rgb: np.ndarray, quad: np.ndarray | None) -> np.ndarray:
-    """Rectify the detected quad, or centre-crop the whole image when none exists."""
-    if quad is None:
-        return center_crop_to_card(image_rgb)
-    return rectify(image_rgb, quad)
+def crop_guided_card(image_rgb: np.ndarray, margin: float) -> np.ndarray:
+    """Recover the card guide from a capture expanded by ``margin`` on each side.
+
+    Args:
+        image_rgb: Capture centred on the on-screen card guide.
+        margin: Background added around each side as a fraction of the guide size.
+
+    Returns:
+        The central guide region resized to canonical card dimensions.
+
+    Raises:
+        ValueError: When the margin is negative.
+    """
+    if margin < 0.0:
+        raise ValueError("guide margin must be non-negative")
+    height, width = image_rgb.shape[:2]
+    expansion = 1.0 + 2.0 * margin
+    guide_width = max(1, int(round(width / expansion)))
+    guide_height = max(1, int(round(height / expansion)))
+    x0 = (width - guide_width) // 2
+    y0 = (height - guide_height) // 2
+    cropped = image_rgb[y0 : y0 + guide_height, x0 : x0 + guide_width]
+    return resize(cropped, _CANON_W, _CANON_H)
+
+
+def rectify_or_whole(
+    image_rgb: np.ndarray,
+    quad: np.ndarray | None,
+    *,
+    guide_margin: float | None = None,
+) -> np.ndarray:
+    """Rectify a quad, recover a guide crop, or centre-crop the whole image."""
+    if quad is not None:
+        return rectify(image_rgb, quad)
+    if guide_margin is not None:
+        return crop_guided_card(image_rgb, guide_margin)
+    return center_crop_to_card(image_rgb)

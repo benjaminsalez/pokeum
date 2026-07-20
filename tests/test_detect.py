@@ -72,6 +72,14 @@ def test_rectify_or_whole_without_quad_returns_canonical() -> None:
     assert card.shape == (constants.CARD_HEIGHT_PX, constants.CARD_WIDTH_PX, 3)
 
 
+def test_rectify_or_whole_recovers_inner_guide() -> None:
+    frame = np.full((130, 91, 3), (220, 20, 20), dtype=np.uint8)
+    frame[15:115, 10:80] = (20, 220, 20)
+    card = rectify_or_whole(frame, None, guide_margin=0.15)
+    assert card.shape == (constants.CARD_HEIGHT_PX, constants.CARD_WIDTH_PX, 3)
+    assert np.all(card == (20, 220, 20))
+
+
 def test_rectify_or_whole_with_quad_returns_canonical() -> None:
     frame = _frame_with_card()
     quad = detect_card_quad(frame)

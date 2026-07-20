@@ -2,7 +2,7 @@
 title: Service, CLI, frontend & webcam
 sources: ["app/cli.py", "app/api/**", "app/collect/**", "main.py", "app/recognize/factory.py", "app/recognize/webcam.py", "app/recognize/eval.py", "frontend/**", "scripts/make_synthetic_eval.py"]
 read-when: "changing the CLI commands, the FastAPI endpoints, the Vue scan frontend, webcam scanning, the recognizer factory/wiring, or the eval harness"
-verified: 2ca52cbc1943
+verified: 2b9f8fafc586
 ---
 
 # Service, CLI, frontend & webcam
@@ -54,14 +54,16 @@ under `/api`** so the built frontend can be served from the same origin at the
 root (the client's default `/api` base then works identically in dev and prod):
 
 - `GET /api/health` → `{status, cards_indexed, embedder_loaded}`
-- `POST /api/identify` (multipart `file`, query `top_k`, `require_detection`) → the
-  recognition result; `400` when the upload cannot be decoded as an image.
-  Decode + recognition run via `run_in_threadpool` (they are CPU-bound; inline
-  they would stall every concurrent request), and the upload is capped to
-  `INGEST_MAX_SIDE` first. With `require_detection=true` the API answers
-  `no_card_detected` when no card quad is found instead of guessing from the
-  whole frame — the live camera path sets it; pre-cropped photo uploads keep
-  the whole-frame fallback.
+- `POST /api/identify` (multipart `file`, query `top_k`, `require_detection`,
+  `guide_margin`) → the recognition result; `400` when the upload cannot be
+  decoded as an image. Decode + recognition run via `run_in_threadpool` (they
+  are CPU-bound; inline they would stall every concurrent request), and the
+  upload is capped to `INGEST_MAX_SIDE` first. `require_detection=true` answers
+  `no_card_detected` when no card quad is found. A guided camera capture instead
+  sends its symmetric margin as `guide_margin`: detection remains preferred,
+  but the recognizer can recover the known inner guide and only accepts that
+  fallback when fusion is confident. Pre-cropped photo uploads keep the
+  whole-frame fallback.
 - `POST /api/scans` (multipart `file` + `annotation` JSON form field) → `202`
   immediately; the upload to S3 happens as a background task after the
   response. Annotations without `consent: true` are dropped server-side with an
@@ -151,9 +153,12 @@ maps the ScannerFrame's on-screen rect through the video's `object-cover`
 geometry to source pixels (`guideCropSourceRect` in
 [`image.ts`](../frontend/src/lib/image.ts), pure and unit-testable), keeping a
 `GUIDE_CROP_MARGIN` of background around the card so quad detection can close
-the contour. Camera scans send `require_detection=true` and show "No card
-found — center it in the frame" on `no_card_detected`; photo uploads keep the
-server-side whole-frame fallback.
+the contour. The camera sends that margin as `guide_margin`: the server uses a
+detected quad when available, otherwise strips the known symmetric margin and
+recognizes the inner guide. The fallback must clear the confident threshold;
+an uncertain result asks for a steadier angle. Photo uploads keep the server-side
+whole-frame fallback, while non-guided strict callers may still request
+`require_detection=true`.
 
 Data collection: a first-visit notice ([`DataNotice.vue`](../frontend/src/components/DataNotice.vue),
 acknowledged flag in localStorage via [`notice.ts`](../frontend/src/lib/notice.ts))

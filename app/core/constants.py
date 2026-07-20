@@ -45,6 +45,16 @@ ARTWORK_BOX: FractionBox = (0.06, 0.10, 0.94, 0.56)
 # Bottom strip carrying the collector number (bottom-right) and, on modern
 # cards, the set code (bottom-left). OCR reads this whole band.
 BOTTOM_STRIP_BOX: FractionBox = (0.0, 0.90, 1.0, 1.0)
+# RapidOCR's document-oriented default enlarges the short side of every input
+# to 736 px. Our strip is already rectified and only 88 px tall, so that default
+# creates a wasteful ~5,270 px-wide detector tensor. A 320 px long-side cap
+# retains collector-number accuracy while keeping the detector input compact.
+OCR_DETECT_MAX_SIDE = 320
+# OCR overlaps the DINO encoder in the recognition pool. Two intra-op workers
+# keep the small detector busy without both ONNX sessions oversubscribing the
+# machine; the graph itself has no useful inter-op parallelism.
+OCR_INTRA_OP_THREADS = 2
+OCR_INTER_OP_THREADS = 1
 # Set-symbol location differs by era: modern cards place it near the number at
 # the bottom; WOTC-era cards place it on the right, beside the description text.
 SYMBOL_ZONE_MODERN: FractionBox = (0.55, 0.905, 0.82, 0.99)

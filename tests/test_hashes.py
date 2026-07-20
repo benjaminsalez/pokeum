@@ -33,6 +33,15 @@ def test_hash_index_ranks_exact_match_first() -> None:
     assert top[0].score == 1.0
 
 
+def test_hash_index_stores_packed_rows() -> None:
+    images = _images()
+    index = HashIndex.from_store_rows(
+        [(card_id, compute_hashes(image)) for card_id, image in images.items()]
+    )
+
+    assert all(matrix.shape == (len(images), 32) for matrix in index.matrices.values())
+
+
 def test_hash_index_robust_to_brightness_shift() -> None:
     images = _images()
     rows = [(cid, compute_hashes(img)) for cid, img in images.items()]

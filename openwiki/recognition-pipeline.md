@@ -2,7 +2,7 @@
 title: Recognition pipeline
 sources: ["app/models.py", "app/vision/**", "app/signals/**", "app/variants/**", "app/recognize/pipeline.py", "app/recognize/fusion.py", "app/recognize/temporal.py", "app/core/constants.py"]
 read-when: "changing detection/rectification, any recognition signal (hash, embedding, OCR, symbol), the fusion/confidence maths, variant detection, or webcam aggregation"
-verified: 2ca52cbc1943
+verified: 2b9f8fafc586
 ---
 
 # Recognition pipeline
@@ -13,7 +13,7 @@ every heavy collaborator is injected, so tests drive it with fakes and the
 CLI/API build it once (see [service-and-cli](service-and-cli.md)).
 
 ```
-image → detect card quad → rectify to canonical 630×880 → signals → fuse → variants
+image → detect card quad → rectify quad or select fallback → 630×880 → signals → fuse → variants
 ```
 
 All tuning knobs (region boxes, hash config, fusion weights/thresholds, temporal
@@ -41,10 +41,13 @@ behaviour there, not with scattered literals.
 - [`geometry.py`](../app/vision/geometry.py) is **pure NumPy** (corner ordering,
   area, aspect, plausibility) and carries the unit-tested maths.
 - [`rectify.py`](../app/vision/rectify.py) perspective-warps the quad to a
-  canonical 630×880 card so every crop box lands in the same place. When no quad
-  is found it centre-crops the whole frame to card aspect instead — good enough
-  for already-cropped scans. `Recognizer.identify(require_detection=True)`
-  instead reports `NO_CARD_DETECTED`, which the webcam path relies on.
+  canonical 630×880 card so every crop box lands in the same place. With no quad,
+  a guided capture can recover the known inner card region from its symmetric
+  `guide_margin`; an ordinary upload instead centre-crops the whole frame to card
+  aspect. Guided fallback is deliberately stricter: an `UNCERTAIN` fusion result
+  becomes `NO_MATCH`, so only a confident card bypasses perspective detection.
+  Strict callers can still set `require_detection=True` to receive
+  `NO_CARD_DETECTED` rather than using either fallback.
 - [`regions.py`](../app/vision/regions.py) turns the fractional boxes in
   `constants.py` into crops: artwork window, bottom strip, symbol zone (era
   dependent), and the variant regions.
@@ -60,8 +63,10 @@ and `OcrEngine` Protocols so pure-logic code and tests never load a model.
 
 - **Hashes** ([`hashes.py`](../app/signals/hashes.py)) — a family of perceptual
   hashes (DCT `phash`, gradient `dhash`, per-RGB-channel `phash`). Matching is
-  one XOR-and-popcount over a bit matrix; the closest hash across the family
-  wins. Cheap and excellent on clean images, weak under glare/angle.
+  one XOR-and-popcount over byte-packed matrices; direct hex-to-byte loading
+  keeps startup and memory proportional to the actual bits rather than an
+  unpacked byte per bit. The closest hash across the family wins. Cheap and
+  excellent on clean images, weak under glare/angle.
 - **Embeddings** ([`embedding.py`](../app/signals/embedding.py)) — cosine
   retrieval over an L2-normalized matrix (`EmbeddingIndex`), one matmul, no ANN
   library. Two encoders share the `Embedder` interface: `OnnxEmbedder` (an
@@ -73,9 +78,13 @@ and `OcrEngine` Protocols so pure-logic code and tests never load a model.
 - **OCR** ([`ocr.py`](../app/signals/ocr.py)) — reads the bottom strip and
   parses the collector number and set code. `parse_collector_number`,
   `parse_set_code`, and `interpret_lines` are **pure and heavily tested**;
-  `RapidOcrEngine` wraps the model. OCR is never a hard gate (glare defeats it) —
-  it only nudges fusion. A parsed set code is only trusted if the catalogue
-  actually prints it (`Recognizer._validate_set_code` against
+  `RapidOcrEngine` wraps the model. Because the input is an already rectified
+  630×88 strip rather than a document, the text detector caps its long side at
+  320px instead of enlarging the short side to RapidOCR's generic 736px default;
+  it also skips the unnecessary 180-degree classifier and uses two ONNX workers
+  to avoid contending with the concurrent embedder. OCR is never a hard gate
+  (glare defeats it) — it only nudges fusion. A parsed set code is only trusted
+  if the catalogue actually prints it (`Recognizer._validate_set_code` against
   `store.known_set_codes()`): random uppercase scene text used to both skip the
   symbol signal and penalize every candidate via `is_useful`.
 - **Symbol** ([`symbol.py`](../app/signals/symbol.py)) — zero-mean normalized
