@@ -2,7 +2,7 @@
 title: Service, CLI, frontend & webcam
 sources: ["app/cli.py", "app/api/**", "app/collect/**", "main.py", "app/recognize/factory.py", "app/recognize/webcam.py", "app/recognize/eval.py", "frontend/**", "scripts/make_synthetic_eval.py"]
 read-when: "changing the CLI commands, the FastAPI endpoints, the Vue scan frontend, webcam scanning, the recognizer factory/wiring, or the eval harness"
-verified: 2b9f8fafc586
+verified: 0044ae99928c
 ---
 
 # Service, CLI, frontend & webcam

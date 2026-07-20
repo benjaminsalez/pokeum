@@ -2,7 +2,7 @@
 title: Recognition pipeline
 sources: ["app/models.py", "app/vision/**", "app/signals/**", "app/variants/**", "app/recognize/pipeline.py", "app/recognize/fusion.py", "app/recognize/temporal.py", "app/core/constants.py"]
 read-when: "changing detection/rectification, any recognition signal (hash, embedding, OCR, symbol), the fusion/confidence maths, variant detection, or webcam aggregation"
-verified: 2b9f8fafc586
+verified: 0044ae99928c
 ---
 
 # Recognition pipeline
