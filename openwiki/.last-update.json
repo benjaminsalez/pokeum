@@ -1,7 +1,7 @@
 {
-  "updatedAt": "2026-07-20T19:39:15.613Z",
+  "updatedAt": "2026-07-20T19:39:41.297Z",
   "command": "update",
-  "checkedHead": "b0153cb85ba404119fc648ade5da9f130f976a5e",
-  "changedHead": "b0153cb85ba404119fc648ade5da9f130f976a5e",
+  "checkedHead": "47d7d9a76124892fd24d7d7323eb6f423f1dcc80",
+  "changedHead": "47d7d9a76124892fd24d7d7323eb6f423f1dcc80",
   "agent": "claude-code/openwiki-skill"
 }
