@@ -194,3 +194,43 @@ def test_meta_get_set(tmp_path: Path) -> None:
     store.set_meta("embedder_id", "histogram-v1")
     assert store.get_meta("embedder_id") == "histogram-v1"
     store.close()
+
+
+# A reference.db built on Windows records backslash-separated paths; the same
+# file is shipped to a Linux server, where a backslash is not a separator.
+
+
+def test_symbol_templates_normalize_windows_paths(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    store.set_symbol_path("sv02", r"data\symbols\sv02.webp")
+    templates = store.symbol_templates()
+    assert [path for _set_id, _era, path in templates] == [str(Path("data/symbols/sv02.webp"))]
+    store.close()
+
+
+def test_cards_with_images_normalize_windows_paths(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    _insert_simple_card(store, "sv02-1", "1")
+    store.set_image_path("sv02-1", r"data\images\sv02\sv02-1.webp")
+    assert store.cards_with_images() == [("sv02-1", str(Path("data/images/sv02/sv02-1.webp")))]
+    store.close()
+
+
+def test_get_card_normalizes_image_path_and_keeps_none(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    _insert_simple_card(store, "sv02-1", "1")
+    card = store.get_card("sv02-1")
+    assert card is not None and card.image_path is None
+
+    store.set_image_path("sv02-1", r"data\images\sv02\sv02-1.webp")
+    card = store.get_card("sv02-1")
+    assert card is not None
+    assert card.image_path == str(Path("data/images/sv02/sv02-1.webp"))
+    store.close()
+
+
+def test_posix_paths_are_unchanged(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    store.set_symbol_path("sv02", "data/symbols/sv02.webp")
+    assert store.symbol_templates()[0][2] == str(Path("data/symbols/sv02.webp"))
+    store.close()

@@ -24,6 +24,28 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = "1"
 
+
+def _portable_path(stored: str) -> str:
+    """Return a cached-file path respelled for the running platform.
+
+    Paths are recorded with the separator of whichever machine ran the sync, so
+    a catalogue built on Windows carries backslashes that POSIX reads as
+    ordinary filename characters rather than separators. Normalizing on read is
+    what lets one prebuilt ``reference.db`` be shipped to either platform — the
+    deployment flow does exactly that.
+
+    Args:
+        stored: Path exactly as recorded in the database.
+
+    Returns:
+        The same location, spelled with the current platform's separator.
+    """
+    # Backslash is a legal filename character on POSIX, but every path here is
+    # one we generated ourselves under data/, so treating it as a separator is
+    # unambiguous and beats silently losing the file on the other platform.
+    return str(Path(stored.replace("\\", "/")))
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sets (
     id TEXT PRIMARY KEY,
@@ -252,7 +274,10 @@ class ReferenceStore:
         rows = self._conn.execute(
             "SELECT id, release_year, symbol_path FROM sets WHERE symbol_path IS NOT NULL"
         ).fetchall()
-        return [(row["id"], era_for_year(row["release_year"]), row["symbol_path"]) for row in rows]
+        return [
+            (row["id"], era_for_year(row["release_year"]), _portable_path(row["symbol_path"]))
+            for row in rows
+        ]
 
     # --- Cards --------------------------------------------------------------
     def upsert_card(
@@ -376,7 +401,7 @@ class ReferenceStore:
         rows = self._conn.execute(
             "SELECT id, image_path FROM cards WHERE image_path IS NOT NULL"
         ).fetchall()
-        return [(row["id"], row["image_path"]) for row in rows]
+        return [(row["id"], _portable_path(row["image_path"])) for row in rows]
 
     def find_card_ids_by_number(self, number: str, number_total: int | None = None) -> list[str]:
         """Return card ids whose collector number (and optional total) match.
@@ -470,7 +495,7 @@ def _row_to_card(row: sqlite3.Row) -> CardRef:
         era=row["era"] or constants.ERA_MODERN,
         release_year=row["release_year"],
         image_url=row["image_url"],
-        image_path=row["image_path"],
+        image_path=_portable_path(row["image_path"]) if row["image_path"] else None,
         has_reverse=bool(row["has_reverse"]),
         has_first_edition=bool(row["has_first_edition"]),
         has_holo=bool(row["has_holo"]),

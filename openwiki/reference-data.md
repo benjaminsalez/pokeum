@@ -2,7 +2,7 @@
 title: Reference data & index
 sources: ["app/reference/**", "scripts/export_embedder.py"]
 read-when: "changing TCGdex sync, the SQLite catalogue schema, image caching, index build/load, or the ONNX embedder export"
-verified: 12d13ba10923
+verified: b0153cb85ba4
 ---
 
 # Reference data & index
@@ -52,6 +52,14 @@ Two details matter downstream:
   `find_card_ids_by_number(number, total)` powers OCR fusion's consistency set.
 - **`era`** — derived from the set's release year (`era_for_year`), used to gate
   variant checks and pick the set-symbol zone. WOTC-era ≈ released ≤ 2003.
+- **Cached-file paths are respelled on read** — `image_path` and `symbol_path`
+  are written with the separator of whichever machine ran the sync, so a
+  `reference.db` built on Windows carries backslashes. `_portable_path` rewrites
+  them for the running platform as they leave the store. Without it a
+  Windows-built catalogue shipped to a Linux server silently loses every
+  set-symbol template (POSIX reads `\` as a filename character, not a
+  separator), killing the symbol signal while the rest of the pipeline looks
+  healthy — exactly what happened in production before v1.7.1.
 - **Batched reads for the hot path** — `get_cards(ids)` resolves a shortlist in
   chunked `IN` queries (one per 500 ids, not one per id), and
   `known_set_codes()` returns the printed set codes the pipeline uses to
