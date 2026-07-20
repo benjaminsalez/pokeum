@@ -4,11 +4,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python 3.13](https://img.shields.io/badge/python-3.13-blue)
 
+![pokeum — a Pokémon card being scanned in the pokeum app](docs/media/pokeum-hero.png)
+
 Point your phone at a Pokémon card and pokeum tells you **exactly which printing it is** — name, set, and collector number (e.g. *Pikachu · Paldea Evolved · 025/193*) plus print variants like reverse holo or 1st Edition. Scan card after card, build your collection, export it as a TCGplayer-ready CSV.
 
 Fully self-hosted: a FastAPI recognition service plus an installable web app (PWA). No accounts, no cloud dependency, no per-scan fees.
 
-<!-- TODO: screenshots — docs/media/scan.gif (live scan → match sheet) and docs/media/collection.png (collection grid) -->
+<!-- TODO: in-app screenshots — docs/media/scan.gif (live scan → match sheet) and docs/media/collection.png (collection grid) -->
 
 ## Features
 
